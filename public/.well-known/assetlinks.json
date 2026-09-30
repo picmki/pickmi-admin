@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.pickmi.driver",
+      "sha256_cert_fingerprints": [
+        "67:19:9D:D3:D1:70:6A:44:E0:04:76:E3:C9:CE:19:CB:0E:1B:06:A2:01:E7:0B:72:A1:2E:E7:54:99:33:78:9A"
+      ]
+    }
+  }
+]
