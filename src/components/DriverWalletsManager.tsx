@@ -340,7 +340,7 @@ export const DriverWalletsManager: React.FC<DriverWalletsManagerProps> = ({
                           <img
                             src={
                               driver.profile_image ||
-                              'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80'
+                              '/default-avatar.png'
                             }
                             alt={driver.name}
                             className="w-9 h-9 rounded-full object-cover border border-slate-200 flex-shrink-0"

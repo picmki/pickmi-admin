@@ -4,7 +4,7 @@ const FALLBACK_DL_BACK = 'https://images.unsplash.com/photo-1554224155-8d04cb21c
 const FALLBACK_RC = 'https://images.unsplash.com/photo-1586281380349-632531db7ed4?auto=format&fit=crop&w=800&q=80';
 const FALLBACK_INS = 'https://images.unsplash.com/photo-1450133064473-71024230f91b?auto=format&fit=crop&w=800&q=80';
 const FALLBACK_PMT = 'https://images.unsplash.com/photo-1544717305-2782549b5136?auto=format&fit=crop&w=800&q=80';
-const FALLBACK_AVATAR = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80';
+const FALLBACK_AVATAR = '/default-avatar.png';
 
 export function getSafeDocUrl(url?: string | null, type?: string | null): string {
   if (!url || url.startsWith('file://')) {
