@@ -33,10 +33,7 @@ export async function sendRemotePushNotificationToDrivers(
         .maybeSingle();
 
       if (!error && data) {
-        if (data.online_status !== 'ONLINE') {
-          console.log(`ℹ️ Driver ${payload.assignedDriverId} is OFFLINE. Skipping push notification.`);
-          return { success: true, deliveredCount: 0 };
-        }
+        
         if (data.push_token) {
           tokens = [data.push_token];
         }
@@ -47,7 +44,7 @@ export async function sendRemotePushNotificationToDrivers(
         .from('drivers')
         .select('push_token, online_status')
         .eq('status', 'active')
-        .eq('online_status', 'ONLINE')
+        
         .not('push_token', 'is', null);
 
       if (!error && data) {
@@ -66,7 +63,7 @@ export async function sendRemotePushNotificationToDrivers(
           .eq('id', payload.assignedDriverId)
           .maybeSingle();
 
-        if (dData?.online_status === 'ONLINE') {
+        if (true) {
           const { data: docData } = await supabase
             .from("driver_documents")
             .select("document_number")
@@ -77,7 +74,7 @@ export async function sendRemotePushNotificationToDrivers(
             tokens = [docData.document_number];
           }
         } else {
-          console.log(`ℹ️ Driver ${payload.assignedDriverId} is OFFLINE. Skipping push notification.`);
+          
           return { success: true, deliveredCount: 0 };
         }
       } else {
@@ -85,7 +82,7 @@ export async function sendRemotePushNotificationToDrivers(
           .from('drivers')
           .select('id')
           .eq('status', 'active')
-          .eq('online_status', 'ONLINE');
+          ;
 
         const onlineIds = (onlineDrivers || []).map((d: any) => d.id);
         if (onlineIds.length > 0) {
