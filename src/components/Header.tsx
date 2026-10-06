@@ -1,5 +1,5 @@
 import React from "react";
-import { Database, PlusCircle, RefreshCw, Menu } from "lucide-react";
+import { Database, PlusCircle, RefreshCw, Menu, LogOut } from "lucide-react";
 
 interface HeaderProps {
   supabaseStatus: { ok: boolean; tablesExist: boolean; message: string };
@@ -8,6 +8,7 @@ interface HeaderProps {
   onOpenCreateTrip: () => void;
   onOpenSetupModal: () => void;
   onToggleMobileMenu: () => void;
+  onLogout?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -17,6 +18,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenCreateTrip,
   onOpenSetupModal,
   onToggleMobileMenu,
+  onLogout,
 }) => {
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-20 shadow-xs">
@@ -90,6 +92,16 @@ export const Header: React.FC<HeaderProps> = ({
             <PlusCircle className="w-4 h-4" />
             <span className="hidden xs:inline sm:inline">Create Trip</span>
           </button>
+          {/* Logout Button */}
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              className="p-2 rounded-xl text-rose-500 hover:text-rose-600 hover:bg-rose-50 transition border border-rose-200"
+              title="Sign Out of Admin Panel"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
     </header>

@@ -1,3 +1,4 @@
+import { LoginPage } from './components/LoginPage';
 import React, { useState, useEffect, useCallback } from 'react';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
@@ -41,6 +42,7 @@ export default function App() {
   const [documents, setDocuments] = useState<DriverDocument[]>([]);
   const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(() => localStorage.getItem('pickmi_admin_authenticated') === 'true');
 
   const [supabaseStatus, setSupabaseStatus] = useState<{
     ok: boolean;
@@ -314,6 +316,10 @@ export default function App() {
     (t) => (t.status === 'COMPLETED' || t.completed_at) && t.settlement_status !== 'SETTLED'
   ).length;
 
+    if (!isAuthenticated) {
+    return <LoginPage onLoginSuccess={() => setIsAuthenticated(true)} />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
       {/* Fixed Left Navigation Sidebar */}
@@ -343,6 +349,10 @@ export default function App() {
           onOpenCreateTrip={() => setCurrentTab('create-trip')}
           onOpenSetupModal={() => setIsSetupModalOpen(true)}
           onToggleMobileMenu={() => setIsMobileMenuOpen((prev) => !prev)}
+          onLogout={() => {
+            localStorage.removeItem('pickmi_admin_authenticated');
+            setIsAuthenticated(false);
+          }}
         />
 
         {/* Database Warning Banner */}
