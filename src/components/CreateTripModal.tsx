@@ -59,11 +59,11 @@ export const CreateTripModal: React.FC<CreateTripModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!customerName || !customerPhone || !pickupLocation || !dropLocation) {
-      alert('Please fill in all required fields');
-      return;
-    }
     setIsSubmitting(true);
+    const payloadName = (customerName || "").trim() || "Guest Rider";
+    const payloadPhone = (customerPhone || "").trim() || "+91 00000 00000";
+    const payloadPickup = (pickupLocation || "").trim() || "Pickup Location";
+    const payloadDrop = (dropLocation || "").trim() || "Drop Location";
     try {
       if (assignedDriverId) {
         const targetDriver = drivers.find((d) => d.id === assignedDriverId);
@@ -75,12 +75,12 @@ export const CreateTripModal: React.FC<CreateTripModalProps> = ({
       }
 
       await onSubmit({
-        customer_name: customerName,
-        customer_phone: customerPhone,
-        pickup_location: pickupLocation,
+        customer_name: payloadName,
+        customer_phone: payloadPhone,
+        pickup_location: payloadPickup,
         pickup_latitude: pickupLat,
         pickup_longitude: pickupLng,
-        drop_location: dropLocation,
+        drop_location: payloadDrop,
         drop_latitude: dropLat,
         drop_longitude: dropLng,
         fare,
@@ -130,7 +130,7 @@ export const CreateTripModal: React.FC<CreateTripModalProps> = ({
                 <User className="w-4 h-4 absolute left-3 top-3 text-slate-500" />
                 <input
                   type="text"
-                  required
+                 
                   value={customerName}
                   onChange={(e) => setCustomerName(e.target.value)}
                   className="w-full pl-9 pr-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
@@ -143,7 +143,7 @@ export const CreateTripModal: React.FC<CreateTripModalProps> = ({
                 <Phone className="w-4 h-4 absolute left-3 top-3 text-slate-500" />
                 <input
                   type="tel"
-                  required
+                 
                   value={customerPhone}
                   onChange={(e) => setCustomerPhone(e.target.value)}
                   className="w-full pl-9 pr-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
@@ -162,7 +162,7 @@ export const CreateTripModal: React.FC<CreateTripModalProps> = ({
               <MapPin className="w-4 h-4 absolute left-3 top-3 text-emerald-400" />
               <input
                 type="text"
-                required
+               
                 value={pickupLocation}
                 onChange={(e) => setPickupLocation(e.target.value)}
                 className="w-full pl-9 pr-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
@@ -193,7 +193,7 @@ export const CreateTripModal: React.FC<CreateTripModalProps> = ({
               <MapPin className="w-4 h-4 absolute left-3 top-3 text-rose-400" />
               <input
                 type="text"
-                required
+               
                 value={dropLocation}
                 onChange={(e) => setDropLocation(e.target.value)}
                 className="w-full pl-9 pr-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
@@ -222,7 +222,7 @@ export const CreateTripModal: React.FC<CreateTripModalProps> = ({
                 <IndianRupee className="w-4 h-4 absolute left-3 top-3 text-slate-500" />
                 <input
                   type="number"
-                  required
+                 
                   min={50}
                   value={fare}
                   onChange={(e) => setFare(Number(e.target.value))}

@@ -92,12 +92,11 @@ export const CreateTripPage: React.FC<CreateTripPageProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!customerName || !customerPhone || !pickupLocation || !dropLocation) {
-      alert('Please fill in all required customer and route fields.');
-      return;
-    }
-
     setIsSubmitting(true);
+    const payloadName = (customerName || "").trim() || "Guest Rider";
+    const payloadPhone = (customerPhone || "").trim() || "+91 00000 00000";
+    const payloadPickup = (pickupLocation || "").trim() || "Pickup Location";
+    const payloadDrop = (dropLocation || "").trim() || "Drop Location";
     try {
       if (assignedDriverId) {
         const targetDriver = drivers.find((d) => d.id === assignedDriverId);
@@ -109,12 +108,12 @@ export const CreateTripPage: React.FC<CreateTripPageProps> = ({
       }
 
       await onSubmit({
-        customer_name: customerName,
-        customer_phone: customerPhone,
-        pickup_location: pickupLocation,
+        customer_name: payloadName,
+        customer_phone: payloadPhone,
+        pickup_location: payloadPickup,
         pickup_latitude: pickupLat,
         pickup_longitude: pickupLng,
-        drop_location: dropLocation,
+        drop_location: payloadDrop,
         drop_latitude: dropLat,
         drop_longitude: dropLng,
         pickup_date: pickupDate,
@@ -197,7 +196,7 @@ export const CreateTripPage: React.FC<CreateTripPageProps> = ({
                 <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
                 <input
                   type="text"
-                  required
+                 
                   value={customerName}
                   onChange={(e) => setCustomerName(e.target.value)}
                   placeholder="e.g. Rahul Nair"
@@ -214,7 +213,7 @@ export const CreateTripPage: React.FC<CreateTripPageProps> = ({
                 <Phone className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
                 <input
                   type="tel"
-                  required
+                 
                   value={customerPhone}
                   onChange={(e) => setCustomerPhone(e.target.value)}
                   placeholder="+91 98450 XXXXX"
@@ -258,7 +257,7 @@ export const CreateTripPage: React.FC<CreateTripPageProps> = ({
                 <MapPin className="w-4 h-4 text-emerald-500 absolute left-3.5 top-3" />
                 <input
                   type="text"
-                  required
+                 
                   value={pickupLocation}
                   onChange={(e) => setPickupLocation(e.target.value)}
                   placeholder="Enter pickup address or landmark"
@@ -275,7 +274,7 @@ export const CreateTripPage: React.FC<CreateTripPageProps> = ({
                 <MapPin className="w-4 h-4 text-rose-500 absolute left-3.5 top-3" />
                 <input
                   type="text"
-                  required
+                 
                   value={dropLocation}
                   onChange={(e) => setDropLocation(e.target.value)}
                   placeholder="Enter drop location or landmark"
@@ -464,7 +463,7 @@ export const CreateTripPage: React.FC<CreateTripPageProps> = ({
                 <span className="absolute left-3.5 top-2.5 text-slate-400 font-bold">₹</span>
                 <input
                   type="number"
-                  required
+                 
                   min={1}
                   value={fare}
                   onChange={(e) => {
@@ -545,7 +544,7 @@ export const CreateTripPage: React.FC<CreateTripPageProps> = ({
                 <span className="absolute left-3.5 top-2.5 text-emerald-600 font-bold">₹</span>
                 <input
                   type="number"
-                  required
+                 
                   min={0}
                   value={cashToCollect}
                   onChange={(e) => setCashToCollect(Number(e.target.value))}

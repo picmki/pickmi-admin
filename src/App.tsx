@@ -32,7 +32,7 @@ import {
   rejectDriverTripRequest,
 } from './lib/supabase';
 import type { Driver, DriverDocument, Trip, TripStatus, NavTab } from './types';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, Menu, LayoutDashboard, Navigation, MapPin, Users } from 'lucide-react';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<NavTab>('overview');
@@ -40,6 +40,7 @@ export default function App() {
   const [trips, setTrips] = useState<Trip[]>([]);
   const [documents, setDocuments] = useState<DriverDocument[]>([]);
   const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const [supabaseStatus, setSupabaseStatus] = useState<{
     ok: boolean;
@@ -329,16 +330,19 @@ export default function App() {
         onlineDriverCount={onlineDriverCount}
         activeTripCount={activeTripCount}
         pendingSettlementCount={pendingSettlementCount}
+        isOpenMobile={isMobileMenuOpen}
+        onCloseMobile={() => setIsMobileMenuOpen(false)}
       />
 
       {/* Main Content Area offset by Sidebar width (w-64 = 16rem = 256px) */}
-      <div className="ml-64 flex-1 flex flex-col min-h-screen">
+      <div className="ml-0 md:ml-64 flex-1 flex flex-col min-h-screen pb-16 md:pb-0">
         <Header
           supabaseStatus={supabaseStatus}
           isSyncing={isSyncing}
           onRefresh={loadDatabase}
           onOpenCreateTrip={() => setCurrentTab('create-trip')}
           onOpenSetupModal={() => setIsSetupModalOpen(true)}
+          onToggleMobileMenu={() => setIsMobileMenuOpen((prev) => !prev)}
         />
 
         {/* Database Warning Banner */}
@@ -360,7 +364,7 @@ export default function App() {
         )}
 
         {/* Main Routed Page Content */}
-        <main className="p-8 flex-1">
+        <main className="p-4 sm:p-6 md:p-8 flex-1">
           {currentTab === 'overview' && (
             <DashboardOverview
               drivers={drivers}
@@ -521,6 +525,56 @@ export default function App() {
         onRefresh={loadDatabase}
         isSyncing={isSyncing}
       />
+      {/* Mobile Bottom Navigation Bar */}
+      <nav className="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 z-30 flex items-center justify-around py-2 shadow-lg">
+        <button
+          onClick={() => setCurrentTab('overview')}
+          className={`flex flex-col items-center gap-0.5 text-[10px] font-bold ${
+            currentTab === 'overview' ? 'text-[#0043DC]' : 'text-slate-500'
+          }`}
+        >
+          <LayoutDashboard className="w-5 h-5" />
+          <span>Home</span>
+        </button>
+
+        <button
+          onClick={() => setCurrentTab('create-trip')}
+          className={`flex flex-col items-center gap-0.5 text-[10px] font-bold ${
+            currentTab === 'create-trip' ? 'text-[#0043DC]' : 'text-slate-500'
+          }`}
+        >
+          <Navigation className="w-5 h-5" />
+          <span>Dispatch</span>
+        </button>
+
+        <button
+          onClick={() => setCurrentTab('trips')}
+          className={`flex flex-col items-center gap-0.5 text-[10px] font-bold ${
+            currentTab === 'trips' ? 'text-[#0043DC]' : 'text-slate-500'
+          }`}
+        >
+          <MapPin className="w-5 h-5" />
+          <span>Trips</span>
+        </button>
+
+        <button
+          onClick={() => setCurrentTab('drivers')}
+          className={`flex flex-col items-center gap-0.5 text-[10px] font-bold ${
+            currentTab === 'drivers' ? 'text-[#0043DC]' : 'text-slate-500'
+          }`}
+        >
+          <Users className="w-5 h-5" />
+          <span>Drivers</span>
+        </button>
+
+        <button
+          onClick={() => setIsMobileMenuOpen(true)}
+          className="flex flex-col items-center gap-0.5 text-[10px] font-bold text-slate-500"
+        >
+          <Menu className="w-5 h-5" />
+          <span>Menu</span>
+        </button>
+      </nav>
     </div>
   );
 }
