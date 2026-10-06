@@ -567,7 +567,7 @@ export const LiveDriversMap: React.FC<LiveDriversMapProps> = ({
                   >
                     <div className="relative">
                       <img
-                        src={driver.profile_image || '/default-avatar.png'}
+                        src={driver.profile_image || '/default-avatar.svg'}
                         alt={driver.name}
                         className="w-10 h-10 rounded-full object-cover border border-slate-200"
                       />
@@ -636,7 +636,7 @@ export const LiveDriversMap: React.FC<LiveDriversMapProps> = ({
 
               <div className="flex items-center gap-3 mb-3">
                 <img
-                  src={selectedDriver.profile_image || '/default-avatar.png'}
+                  src={selectedDriver.profile_image || '/default-avatar.svg'}
                   alt={selectedDriver.name}
                   className="w-12 h-12 rounded-xl object-cover border-2 border-emerald-500"
                 />
