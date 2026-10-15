@@ -4,17 +4,12 @@ import {
   Car,
   Calendar,
   Clock,
-  User,
-  Phone,
   IndianRupee,
   MapPin,
   CheckCircle2,
-  Sparkles,
-  ArrowRight,
-  ShieldCheck,
-  Percent,
   Sliders,
-  Radio
+  Tag,
+  Gauge,
 } from 'lucide-react';
 import type { Driver, VehicleType, TripType } from '../types';
 
@@ -24,45 +19,87 @@ interface CreateTripPageProps {
   onNavigateToTrips: () => void;
 }
 
-const PRESET_LOCATIONS = [
-  { name: 'Kempegowda International Airport (BLR), Terminal 2', lat: 13.1989, lng: 77.7068 },
-  { name: 'Koramangala 5th Block, Bengaluru', lat: 12.9352, lng: 77.6245 },
-  { name: 'Indiranagar 100ft Road Metro Station', lat: 12.9784, lng: 77.6408 },
-  { name: 'Electronic City Phase 1, Wipro Gate', lat: 12.8452, lng: 77.6602 },
-  { name: 'Whitefield ITPL Main Road', lat: 12.9866, lng: 77.7335 },
-  { name: 'MG Road Trinity Circle, Bengaluru', lat: 12.9738, lng: 77.6192 },
-  { name: 'Mysuru Suburban Bus Stand', lat: 12.3052, lng: 76.6552 },
-];
-
 export const CreateTripPage: React.FC<CreateTripPageProps> = ({
-  drivers,
+  drivers: _drivers,
   onSubmit,
   onNavigateToTrips,
 }) => {
-  // Passenger
-  const [customerName, setCustomerName] = useState('Rahul Nair');
-  const [customerPhone, setCustomerPhone] = useState('+91 98450 67890');
-
   // Route
-  const [pickupLocation, setPickupLocation] = useState(PRESET_LOCATIONS[1].name);
-  const [pickupLat, setPickupLat] = useState(PRESET_LOCATIONS[1].lat);
-  const [pickupLng, setPickupLng] = useState(PRESET_LOCATIONS[1].lng);
+  const [pickupLocation, setPickupLocation] = useState('');
+  const [pickupLat, setPickupLat] = useState(12.9352);
+  const [pickupLng, setPickupLng] = useState(77.6245);
 
-  const [dropLocation, setDropLocation] = useState(PRESET_LOCATIONS[0].name);
-  const [dropLat, setDropLat] = useState(PRESET_LOCATIONS[0].lat);
-  const [dropLng, setDropLng] = useState(PRESET_LOCATIONS[0].lng);
+  const [dropLocation, setDropLocation] = useState('');
+  const [dropLat, setDropLat] = useState(13.1989);
+  const [dropLng, setDropLng] = useState(77.7068);
 
   // Timing
-  const [pickupDate, setPickupDate] = useState('Today');
-  const [pickupTime, setPickupTime] = useState('Now');
+  const [pickupDate, setPickupDate] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  });
+  const [pickupTime, setPickupTime] = useState(() => {
+    const d = new Date();
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  });
+
+  // Date & Time helper utilities
+  const getTodayDateStr = () => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const getTomorrowDateStr = () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const getCurrentTimeStr = (offsetMinutes = 0) => {
+    const d = new Date();
+    d.setMinutes(d.getMinutes() + offsetMinutes);
+    const hours = String(d.getHours()).padStart(2, '0');
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    return `${hours}:${minutes}`;
+  };
+
+  const formatDisplayTime = (time24: string) => {
+    if (!time24 || time24.toLowerCase() === 'now') return 'Now';
+    const parts = time24.split(':');
+    if (parts.length < 2) return time24;
+    let h = parseInt(parts[0], 10);
+    const m = parts[1];
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12;
+    h = h ? h : 12;
+    return `${String(h).padStart(2, '0')}:${m} ${ampm}`;
+  };
+
   const [tripType, setTripType] = useState<TripType>('One-way');
   const [vehicleType, setVehicleType] = useState<VehicleType>('Sedan');
 
-  // Pricing & Distance
+  // Pricing Model Type: 'FIXED' or 'KMS'
+  const [pricingType, setPricingType] = useState<'FIXED' | 'KMS'>('FIXED');
+
+  // Fixed Trip States
   const [fare, setFare] = useState<number>(1250);
   const [distance, setDistance] = useState('38.5 km');
   const [allowedKm, setAllowedKm] = useState<number>(45);
   const [extraKmRate, setExtraKmRate] = useState<number>(14);
+
+  // KMs Trip States
+  const [ratePerKm, setRatePerKm] = useState<number>(16);
+  const [estKm, setEstKm] = useState<number>(38.5);
+  const [kmsAllowedKm, setKmsAllowedKm] = useState<string>(''); // Optional allowed km coverage
+
+  // Platform Commission (%)
+  const [commissionRate, setCommissionRate] = useState<number>(10);
 
   // Fee Inclusions / Exclusions Breakdown (User Audio Requirements)
   const [tollIncluded, setTollIncluded] = useState<'INCLUDED' | 'EXCLUDED'>('INCLUDED');
@@ -70,67 +107,94 @@ export const CreateTripPage: React.FC<CreateTripPageProps> = ({
   const [battaIncluded, setBattaIncluded] = useState<'INCLUDED' | 'EXCLUDED'>('INCLUDED');
   const [hillChargesApplicable, setHillChargesApplicable] = useState<'APPLICABLE' | 'NOT_APPLICABLE'>('NOT_APPLICABLE');
 
-  // Cash Collection
-  const [cashToCollect, setCashToCollect] = useState<number>(1250);
-  const [paymentMethod, setPaymentMethod] = useState('Cash');
-  const [assignedDriverId, setAssignedDriverId] = useState('');
-
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
 
-  const handlePickupPreset = (preset: (typeof PRESET_LOCATIONS)[0]) => {
-    setPickupLocation(preset.name);
-    setPickupLat(preset.lat);
-    setPickupLng(preset.lng);
-  };
+  // Dynamic calculations
+  const fixedCommissionAmount = Math.round((fare * commissionRate) / 100);
+  const fixedDriverNet = Math.max(0, fare - fixedCommissionAmount);
 
-  const handleDropPreset = (preset: (typeof PRESET_LOCATIONS)[0]) => {
-    setDropLocation(preset.name);
-    setDropLat(preset.lat);
-    setDropLng(preset.lng);
-  };
+  const kmsEstTotal = Math.round(estKm * ratePerKm);
+  const kmsCommissionAmount = Math.round((kmsEstTotal * commissionRate) / 100);
+  const kmsDriverNet = Math.max(0, kmsEstTotal - kmsCommissionAmount);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
-    const payloadName = (customerName || "").trim() || "Guest Rider";
-    const payloadPhone = (customerPhone || "").trim() || "+91 00000 00000";
     const payloadPickup = (pickupLocation || "").trim() || "Pickup Location";
     const payloadDrop = (dropLocation || "").trim() || "Drop Location";
-    try {
-      if (assignedDriverId) {
-        const targetDriver = drivers.find((d) => d.id === assignedDriverId);
-        if (targetDriver && targetDriver.status !== "active") {
-          alert("Cannot dispatch trip: Selected driver has unverified documents. Please verify driver documents first.");
-          setIsSubmitting(false);
-          return;
-        }
-      }
 
+    const finalFare = pricingType === 'FIXED' ? fare : kmsEstTotal;
+    const finalDistance = pricingType === 'FIXED' ? distance : `${estKm} km`;
+    const finalAllowedKm = pricingType === 'FIXED' ? allowedKm : (kmsAllowedKm && Number(kmsAllowedKm) > 0 ? Number(kmsAllowedKm) : 0);
+    const finalExtraKmRate = pricingType === 'FIXED' ? extraKmRate : ratePerKm;
+
+    // Auto-geocode addresses to real coordinates
+    let finalPickupLat = pickupLat;
+    let finalPickupLng = pickupLng;
+    let finalDropLat = dropLat;
+    let finalDropLng = dropLng;
+
+    const geocodeLocation = async (text: string) => {
+      if (!text || text.trim().length === 0) return null;
+      try {
+        const parts = text.split(",").map(s => s.trim()).filter(Boolean);
+        const q = parts.slice(0, 3).join(", ");
+        const res = await fetch("https://nominatim.openstreetmap.org/search?format=json&q=" + encodeURIComponent(q) + "&limit=1");
+        const data = await res.json();
+        if (data && data[0]) return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+      } catch (e) {}
+      try {
+        const city = text.split(",")[0].trim();
+        const res = await fetch("https://nominatim.openstreetmap.org/search?format=json&q=" + encodeURIComponent(city) + "&limit=1");
+        const data = await res.json();
+        if (data && data[0]) return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+      } catch (e) {}
+      return null;
+    };
+
+    try {
+      const [pGeo, dGeo] = await Promise.all([
+        geocodeLocation(payloadPickup),
+        geocodeLocation(payloadDrop)
+      ]);
+      if (pGeo) {
+        finalPickupLat = pGeo.lat;
+        finalPickupLng = pGeo.lng;
+      }
+      if (dGeo) {
+        finalDropLat = dGeo.lat;
+        finalDropLng = dGeo.lng;
+      }
+    } catch (e) {}
+
+    try {
       await onSubmit({
-        customer_name: payloadName,
-        customer_phone: payloadPhone,
+        customer_name: "Customer",
+        customer_phone: "+91 00000 00000",
         pickup_location: payloadPickup,
-        pickup_latitude: pickupLat,
-        pickup_longitude: pickupLng,
+        pickup_latitude: finalPickupLat,
+        pickup_longitude: finalPickupLng,
         drop_location: payloadDrop,
-        drop_latitude: dropLat,
-        drop_longitude: dropLng,
-        pickup_date: pickupDate,
-        pickup_time: pickupTime,
-        fare,
-        distance,
+        drop_latitude: finalDropLat,
+        drop_longitude: finalDropLng,
+        pickup_date: pickupDate === getTodayDateStr() ? 'Today' : pickupDate,
+        pickup_time: formatDisplayTime(pickupTime),
+        fare: finalFare,
+        distance: finalDistance,
         vehicle_type: vehicleType,
         trip_type: tripType,
-        payment_method: paymentMethod,
-        assigned_driver_id: assignedDriverId || null,
+        payment_method: 'Cash',
+        assigned_driver_id: null,
         toll_included: tollIncluded,
         permit_included: permitIncluded,
         batta_included: battaIncluded,
         hill_charges_applicable: hillChargesApplicable,
-        cash_to_collect: cashToCollect,
-        allowed_km: allowedKm,
-        extra_km_rate: extraKmRate,
+        cash_to_collect: finalFare,
+        allowed_km: finalAllowedKm,
+        extra_km_rate: finalExtraKmRate,
+        pricing_type: pricingType,
+        commission_rate: commissionRate,
       });
 
       setIsSuccess(true);
@@ -145,30 +209,7 @@ export const CreateTripPage: React.FC<CreateTripPageProps> = ({
   };
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 pb-16">
-      {/* Page Title & Breadcrumb */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-        <div className="flex items-center space-x-3">
-          <div className="w-12 h-12 rounded-xl bg-[#0043DC]/10 border border-[#0043DC]/20 text-[#0043DC] flex items-center justify-center font-bold">
-            <Navigation className="w-6 h-6 text-[#0043DC]" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-black text-slate-900 tracking-tight">Create & Dispatch Trip</h1>
-            <p className="text-sm text-slate-500">
-              Configure passenger booking, pricing breakdown, extra km rules & live driver dispatch
-            </p>
-          </div>
-        </div>
-
-        <button
-          onClick={onNavigateToTrips}
-          className="inline-flex items-center space-x-2 text-sm font-semibold text-slate-600 hover:text-[#0043DC] px-4 py-2 rounded-xl border border-slate-200 hover:border-[#0043DC]/30 bg-white transition"
-        >
-          <span>View All Trips</span>
-          <ArrowRight className="w-4 h-4" />
-        </button>
-      </div>
-
+    <div className="max-w-5xl mx-auto space-y-5 px-1 sm:px-0 pb-24">
       {isSuccess && (
         <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-2xl flex items-center space-x-3 shadow-sm animate-fade-in">
           <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" />
@@ -179,73 +220,12 @@ export const CreateTripPage: React.FC<CreateTripPageProps> = ({
       )}
 
       {/* Main Form */}
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Section 1: Passenger Information */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
-          <div className="flex items-center space-x-2 pb-3 border-b border-slate-100">
-            <User className="w-5 h-5 text-[#0043DC]" />
-            <h2 className="text-base font-bold text-slate-900">1. Customer Information</h2>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-                Customer Full Name *
-              </label>
-              <div className="relative">
-                <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-                <input
-                  type="text"
-                 
-                  value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
-                  placeholder="e.g. Rahul Nair"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0043DC] focus:border-transparent transition"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-                Phone Number *
-              </label>
-              <div className="relative">
-                <Phone className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-                <input
-                  type="tel"
-                 
-                  value={customerPhone}
-                  onChange={(e) => setCustomerPhone(e.target.value)}
-                  placeholder="+91 98450 XXXXX"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0043DC] focus:border-transparent transition"
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Section 2: Route & Locations */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
+      <form noValidate onSubmit={handleSubmit} className="space-y-6">
+        {/* Section 1: Route & Locations */}
+        <div className="bg-white p-4 sm:p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4 sm:space-y-5">
           <div className="flex items-center space-x-2 pb-3 border-b border-slate-100">
             <MapPin className="w-5 h-5 text-emerald-600" />
-            <h2 className="text-base font-bold text-slate-900">2. Route & Location Details</h2>
-          </div>
-
-          {/* Quick Presets */}
-          <div>
-            <div className="text-xs font-semibold text-slate-500 mb-2">Popular Route Presets:</div>
-            <div className="flex flex-wrap gap-1.5">
-              {PRESET_LOCATIONS.map((preset, idx) => (
-                <button
-                  type="button"
-                  key={idx}
-                  onClick={() => handleDropPreset(preset)}
-                  className="text-xs px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-[#0043DC]/10 hover:text-[#0043DC] text-slate-700 border border-slate-200 transition"
-                >
-                  {preset.name.split(',')[0]}
-                </button>
-              ))}
-            </div>
+            <h2 className="text-base font-bold text-slate-900">1. Route & Location Details</h2>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -257,7 +237,6 @@ export const CreateTripPage: React.FC<CreateTripPageProps> = ({
                 <MapPin className="w-4 h-4 text-emerald-500 absolute left-3.5 top-3" />
                 <input
                   type="text"
-                 
                   value={pickupLocation}
                   onChange={(e) => setPickupLocation(e.target.value)}
                   placeholder="Enter pickup address or landmark"
@@ -274,7 +253,6 @@ export const CreateTripPage: React.FC<CreateTripPageProps> = ({
                 <MapPin className="w-4 h-4 text-rose-500 absolute left-3.5 top-3" />
                 <input
                   type="text"
-                 
                   value={dropLocation}
                   onChange={(e) => setDropLocation(e.target.value)}
                   placeholder="Enter drop location or landmark"
@@ -285,11 +263,11 @@ export const CreateTripPage: React.FC<CreateTripPageProps> = ({
           </div>
         </div>
 
-        {/* Section 3: Schedule, Vehicle & Trip Type */}
+        {/* Section 2: Schedule, Vehicle & Trip Type */}
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
           <div className="flex items-center space-x-2 pb-3 border-b border-slate-100">
             <Car className="w-5 h-5 text-[#0043DC]" />
-            <h2 className="text-base font-bold text-slate-900">3. Vehicle Category & Schedule</h2>
+            <h2 className="text-base font-bold text-slate-900">2. Vehicle Category & Schedule</h2>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
@@ -326,46 +304,96 @@ export const CreateTripPage: React.FC<CreateTripPageProps> = ({
               </select>
             </div>
 
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-                Pickup Date
-              </label>
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600">
+                  Pickup Date *
+                </label>
+                <div className="flex items-center space-x-1">
+                  <button
+                    type="button"
+                    onClick={() => setPickupDate(getTodayDateStr())}
+                    className={`text-[11px] font-bold px-2 py-0.5 rounded transition ${
+                      pickupDate === getTodayDateStr()
+                        ? 'bg-[#0043DC] text-white shadow-sm'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    Today
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPickupDate(getTomorrowDateStr())}
+                    className={`text-[11px] font-bold px-2 py-0.5 rounded transition ${
+                      pickupDate === getTomorrowDateStr()
+                        ? 'bg-[#0043DC] text-white shadow-sm'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    Tomorrow
+                  </button>
+                </div>
+              </div>
               <div className="relative">
-                <Calendar className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                <Calendar className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
                 <input
-                  type="text"
+                  type="date"
+                  
                   value={pickupDate}
                   onChange={(e) => setPickupDate(e.target.value)}
-                  placeholder="Today / DD-MM-YYYY"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0043DC]"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0043DC]"
                 />
               </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-                Pickup Time
-              </label>
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600">
+                  Pickup Time *
+                </label>
+                <div className="flex items-center space-x-1">
+                  <button
+                    type="button"
+                    onClick={() => setPickupTime(getCurrentTimeStr(0))}
+                    className="text-[11px] font-bold px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition"
+                  >
+                    Now
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPickupTime(getCurrentTimeStr(30))}
+                    className="text-[11px] font-bold px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition"
+                  >
+                    +30m
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPickupTime(getCurrentTimeStr(60))}
+                    className="text-[11px] font-bold px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition"
+                  >
+                    +1h
+                  </button>
+                </div>
+              </div>
               <div className="relative">
-                <Clock className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                <Clock className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
                 <input
-                  type="text"
+                  type="time"
                   value={pickupTime}
                   onChange={(e) => setPickupTime(e.target.value)}
-                  placeholder="Now / 04:30 PM"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0043DC]"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0043DC]"
                 />
               </div>
             </div>
           </div>
         </div>
 
-        {/* Section 4: Specific Inclusions / Exclusions (Audio Requirement) */}
+        {/* Section 3: Specific Inclusions / Exclusions */}
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100">
             <div className="flex items-center space-x-2">
               <Sliders className="w-5 h-5 text-indigo-600" />
-              <h2 className="text-base font-bold text-slate-900">4. Fee Inclusions & Rules Breakdown</h2>
+              <h2 className="text-base font-bold text-slate-900">3. Fee Inclusions & Rules Breakdown</h2>
             </div>
             <span className="text-xs bg-indigo-50 text-indigo-700 font-bold px-2.5 py-1 rounded-full border border-indigo-100">
               Reflected on Driver Mobile App
@@ -447,170 +475,265 @@ export const CreateTripPage: React.FC<CreateTripPageProps> = ({
           </div>
         </div>
 
-        {/* Section 5: Pricing, Distance & Extra Km Formula (Audio 2 Requirement) */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
-          <div className="flex items-center space-x-2 pb-3 border-b border-slate-100">
-            <IndianRupee className="w-5 h-5 text-emerald-600" />
-            <h2 className="text-base font-bold text-slate-900">5. Fare, Distance & Extra KM Formula</h2>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-                Base Fare (₹) *
-              </label>
-              <div className="relative">
-                <span className="absolute left-3.5 top-2.5 text-slate-400 font-bold">₹</span>
-                <input
-                  type="number"
-                 
-                  min={1}
-                  value={fare}
-                  onChange={(e) => {
-                    const f = Number(e.target.value);
-                    setFare(f);
-                    setCashToCollect(f);
-                  }}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-4 py-2.5 text-base font-black text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0043DC]"
-                />
-              </div>
+        {/* Section 4: Pricing Structure & Model Selector */}
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-4 border-b border-slate-100">
+            <div className="flex items-center space-x-2">
+              <IndianRupee className="w-5 h-5 text-emerald-600" />
+              <h2 className="text-base font-bold text-slate-900">
+                4. Pricing Structure ({pricingType === 'FIXED' ? 'Fixed Trip' : 'KMs Trip'})
+              </h2>
             </div>
 
-            {/* ALLOWED KM LIMIT */}
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-                Allowed KM Limit
-              </label>
-              <div className="relative">
-                <input
-                  type="number"
-                  min={1}
-                  value={allowedKm}
-                  onChange={(e) => {
-                    const val = Number(e.target.value);
-                    setAllowedKm(val);
-                    setDistance(`${val} km`);
-                  }}
-                  placeholder="45"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-3.5 pr-12 py-2.5 text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0043DC] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                />
-                <span className="absolute right-3.5 top-2.5 text-xs text-slate-400 font-bold pointer-events-none">KM</span>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-                Extra KM Rate (₹/KM)
-              </label>
-              <div className="relative">
-                <span className="absolute left-3.5 top-2.5 text-slate-400 font-bold">₹</span>
-                <input
-                  type="number"
-                  min={1}
-                  value={extraKmRate}
-                  onChange={(e) => setExtraKmRate(Number(e.target.value))}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-4 py-2.5 text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0043DC]"
-                />
-                <span className="absolute right-3.5 top-2.5 text-xs text-slate-400 font-bold">/km</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Audio 2 Formula Illustration Card */}
-          <div className="bg-[#0043DC]/5 border border-[#0043DC]/15 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-700">
-            <div>
-              <strong className="text-[#0043DC]">💡 Extra Distance Rule:</strong> Base trip includes up to <strong>{allowedKm} KM</strong>. Any distance beyond {allowedKm} KM will be charged at <strong>₹{extraKmRate}/KM</strong> and automatically added to driver's cash collection bill!
-            </div>
-            <div className="flex-shrink-0 font-mono bg-white px-3 py-1.5 rounded-lg border border-slate-200 text-[#0043DC] font-bold">
-              Formula: Extra KM × ₹{extraKmRate}
-            </div>
-          </div>
-        </div>
-
-        {/* Section 6: Cash Collection from Customer & Driver Assignment */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
-          <div className="flex items-center space-x-2 pb-3 border-b border-slate-100">
-            <Radio className="w-5 h-5 text-emerald-600" />
-            <h2 className="text-base font-bold text-slate-900">6. Driver Cash Settlement & Assignment</h2>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-            {/* Cash to Collect */}
-            <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/50 space-y-1.5">
-              <label className="block text-xs font-bold uppercase tracking-wider text-emerald-800">
-                💰 Cash to Collect from Customer *
-              </label>
-              <div className="relative">
-                <span className="absolute left-3.5 top-2.5 text-emerald-600 font-bold">₹</span>
-                <input
-                  type="number"
-                 
-                  min={0}
-                  value={cashToCollect}
-                  onChange={(e) => setCashToCollect(Number(e.target.value))}
-                  className="w-full bg-white border border-emerald-300 rounded-xl pl-8 pr-4 py-2 text-base font-black text-emerald-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-              <p className="text-[11px] text-emerald-700">Exact cash amount driver must receive from rider</p>
-            </div>
-
-            {/* Payment Method */}
-            <div className="space-y-1.5">
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-600">
-                Payment Mode
-              </label>
-              <select
-                value={paymentMethod}
-                onChange={(e) => setPaymentMethod(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0043DC]"
+            {/* Trip Creation Model Switcher */}
+            <div className="inline-flex p-1 bg-slate-100 rounded-xl border border-slate-200/80 shadow-inner">
+              <button
+                type="button"
+                onClick={() => setPricingType('FIXED')}
+                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 ${
+                  pricingType === 'FIXED'
+                    ? 'bg-[#0043DC] text-white shadow-md'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
               >
-                <option value="Cash">Cash to Driver</option>
-                <option value="Online">Online / Pre-paid</option>
-                <option value="UPI">UPI Direct</option>
-              </select>
-            </div>
-
-            {/* Driver Assignment */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600">
-                  Assign Specific Driver (Optional)
-                </label>
-                <span className="text-[11px] text-slate-400 font-medium">Only verified drivers can take trips</span>
-              </div>
-              <select
-                value={assignedDriverId}
-                onChange={(e) => {
-                  const sId = e.target.value;
-                  const found = drivers.find((d) => d.id === sId);
-                  if (found && found.status !== "active") {
-                    alert(`⚠️ Cannot Assign ${found.name}: Documents & vehicle details are pending verification. You can only assign trips to drivers verified by Admin.`);
-                    return;
-                  }
-                  setAssignedDriverId(sId);
-                }}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0043DC]"
+                <Tag className="w-3.5 h-3.5" />
+                <span>Fixed Trip</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPricingType('KMS')}
+                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 ${
+                  pricingType === 'KMS'
+                    ? 'bg-[#0043DC] text-white shadow-md'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
               >
-                <option value="">⚡ Broadcast to ALL Online Verified Drivers</option>
-                {drivers.map((d) => {
-                  const isVerified = d.status === "active";
-                  return (
-                    <option key={d.id} value={d.id} disabled={!isVerified}>
-                      {d.name} ({d.mobile}) • {isVerified ? "✅ Verified" : "⚠️ Docs Pending (Locked)"} • {d.online_status}
-                    </option>
-                  );
-                })}
-              </select>
+                <Gauge className="w-3.5 h-3.5" />
+                <span>KMs Trip</span>
+              </button>
             </div>
           </div>
+
+          {pricingType === 'FIXED' ? (
+            /* ================= FIXED TRIP FORM ================= */
+            <div className="space-y-5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                {/* 1. Base Fare */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
+                    Base Fare (₹) *
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3.5 top-2.5 text-slate-400 font-bold">₹</span>
+                    <input
+                      type="number"
+                      value={fare}
+                      onChange={(e) => setFare(Number(e.target.value))}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-4 py-2.5 text-base font-black text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0043DC]"
+                    />
+                  </div>
+                </div>
+
+                {/* 2. Allowed KM Limit */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
+                    Allowed KM Limit *
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      value={allowedKm}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setAllowedKm(val);
+                        setDistance(`${val} km`);
+                      }}
+                      placeholder="45"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-3.5 pr-12 py-2.5 text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0043DC] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    />
+                    <span className="absolute right-3.5 top-2.5 text-xs text-slate-400 font-bold pointer-events-none">KM</span>
+                  </div>
+                </div>
+
+                {/* 3. Extra KM Rate */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
+                    Extra KM Rate (₹/KM) *
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3.5 top-2.5 text-slate-400 font-bold">₹</span>
+                    <input
+                      type="number"
+                      value={extraKmRate}
+                      onChange={(e) => setExtraKmRate(Number(e.target.value))}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-12 py-2.5 text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0043DC]"
+                    />
+                    <span className="absolute right-3.5 top-2.5 text-xs text-slate-400 font-bold">/km</span>
+                  </div>
+                </div>
+
+                {/* 4. Platform Commission */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
+                    Platform Commission (%)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      value={commissionRate}
+                      onChange={(e) => setCommissionRate(Number(e.target.value))}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-3.5 pr-10 py-2.5 text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0043DC]"
+                    />
+                    <span className="absolute right-3.5 top-2.5 text-xs text-slate-400 font-bold pointer-events-none">%</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Fixed Formula & Commission Summary Card */}
+              <div className="bg-[#0043DC]/5 border border-[#0043DC]/15 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 text-xs text-slate-700">
+                <div className="space-y-1">
+                  <div>
+                    <strong className="text-[#0043DC]">💡 Fixed Trip Rule:</strong> Base trip includes up to <strong>{allowedKm} KM</strong>. Any distance beyond {allowedKm} KM will be charged at <strong>₹{extraKmRate}/KM</strong>.
+                  </div>
+                  <div className="text-slate-500 font-medium">
+                    Formula: Extra KM × ₹{extraKmRate}
+                  </div>
+                </div>
+
+                {/* Financial Summary Pill */}
+                <div className="flex flex-wrap items-center gap-2 font-medium">
+                  <div className="bg-white px-3 py-1.5 rounded-lg border border-slate-200">
+                    <span className="text-slate-500">Base Fare:</span> <strong className="text-slate-900 font-bold">₹{fare}</strong>
+                  </div>
+                  <div className="bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-200">
+                    <span className="text-amber-800">Comm ({commissionRate}%):</span> <strong className="text-amber-900 font-bold">₹{fixedCommissionAmount}</strong>
+                  </div>
+                  <div className="bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200">
+                    <span className="text-emerald-800">Driver Net:</span> <strong className="text-emerald-900 font-bold">₹{fixedDriverNet}</strong>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* ================= KMS TRIP FORM ================= */
+            <div className="space-y-5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                {/* 1. Rate Per KM */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
+                    Rate Per KM (₹/KM) *
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3.5 top-2.5 text-[#0043DC] font-black">₹</span>
+                    <input
+                      type="number"
+                      value={ratePerKm}
+                      onChange={(e) => setRatePerKm(Number(e.target.value))}
+                      placeholder="16"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-12 py-2.5 text-base font-black text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0043DC]"
+                    />
+                    <span className="absolute right-3.5 top-2.5 text-xs text-slate-400 font-bold">/km</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1">Direct kilometer pricing</p>
+                </div>
+
+                {/* 2. Allowed KM / Coverage (Optional) */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5 flex items-center justify-between">
+                    <span>Allowed KM (Optional)</span>
+                    <span className="text-[10px] text-[#0043DC] font-bold">coverage</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      value={kmsAllowedKm}
+                      onChange={(e) => setKmsAllowedKm(e.target.value)}
+                      placeholder="e.g. 50 (blank = no limit)"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-3.5 pr-12 py-2.5 text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0043DC] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    />
+                    <span className="absolute right-3.5 top-2.5 text-xs text-slate-400 font-bold pointer-events-none">KM</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    {kmsAllowedKm && Number(kmsAllowedKm) > 0
+                      ? `Shows as ${kmsAllowedKm} KM Coverage in Driver App`
+                      : 'Leave blank to hide Coverage in Driver App'}
+                  </p>
+                </div>
+
+                {/* 3. Estimated Distance */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
+                    Estimated Route (KM) *
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      value={estKm}
+                      onChange={(e) => setEstKm(Number(e.target.value))}
+                      placeholder="38.5"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-3.5 pr-12 py-2.5 text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0043DC] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    />
+                    <span className="absolute right-3.5 top-2.5 text-xs text-slate-400 font-bold pointer-events-none">KM</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1">Trip distance estimate</p>
+                </div>
+
+                {/* 4. Platform Commission */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
+                    Platform Commission (%)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      value={commissionRate}
+                      onChange={(e) => setCommissionRate(Number(e.target.value))}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-3.5 pr-10 py-2.5 text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0043DC]"
+                    />
+                    <span className="absolute right-3.5 top-2.5 text-xs text-slate-400 font-bold pointer-events-none">%</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1">PickMi platform fee (default 10%)</p>
+                </div>
+              </div>
+
+              {/* KMs Trip Live Breakdown & Formula Card */}
+              <div className="bg-emerald-50/60 border border-emerald-200 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 text-xs text-slate-700">
+                <div className="space-y-1">
+                  <div>
+                    <strong className="text-emerald-700">🛣️ KMs Trip:</strong> {kmsAllowedKm && Number(kmsAllowedKm) > 0 ? (
+                      <span>Coverage of <strong>{kmsAllowedKm} KM</strong> set. Billed @ <strong>₹{ratePerKm}/KM</strong>.</span>
+                    ) : (
+                      <span>Pure distance billing @ <strong>₹{ratePerKm}/KM</strong> (no coverage limit).</span>
+                    )}
+                  </div>
+                  <div className="text-slate-500 font-medium">
+                    Formula: Distance ({estKm} KM) × ₹{ratePerKm}/KM = <strong className="text-slate-900">₹{kmsEstTotal}</strong>
+                  </div>
+                </div>
+
+                {/* Commission & Net Share Breakdown */}
+                <div className="flex flex-wrap items-center gap-2 font-medium">
+                  <div className="bg-white px-3 py-1.5 rounded-lg border border-emerald-200 shadow-sm">
+                    <span className="text-slate-500">Est. Total:</span> <strong className="text-emerald-700 font-bold text-sm">₹{kmsEstTotal}</strong>
+                  </div>
+                  <div className="bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-200 shadow-sm">
+                    <span className="text-amber-800">Comm ({commissionRate}%):</span> <strong className="text-amber-900 font-bold">₹{kmsCommissionAmount}</strong>
+                  </div>
+                  <div className="bg-emerald-600 text-white px-3 py-1.5 rounded-lg shadow-sm">
+                    <span>Driver Net:</span> <strong className="font-bold">₹{kmsDriverNet}</strong>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Submit & Dispatch Button */}
-        <div className="flex items-center justify-end space-x-3 pt-4">
+        <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-3 pt-4">
           <button
             type="button"
             onClick={onNavigateToTrips}
-            className="px-6 py-3 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-100 font-semibold text-sm transition"
+            className="w-full sm:w-auto px-6 py-3 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-100 font-semibold text-sm transition text-center"
           >
             Cancel
           </button>
@@ -618,9 +741,9 @@ export const CreateTripPage: React.FC<CreateTripPageProps> = ({
           <button
             type="submit"
             disabled={isSubmitting}
-            className="flex items-center space-x-2 px-8 py-3.5 rounded-xl bg-[#0043DC] hover:bg-[#0036b3] text-white font-black text-sm tracking-wide shadow-lg shadow-[#0043DC]/25 active:scale-95 transition disabled:opacity-50"
+            className="w-full sm:w-auto flex items-center justify-center space-x-2 px-6 sm:px-8 py-3.5 rounded-xl bg-[#0043DC] hover:bg-[#0036b3] text-white font-black text-xs sm:text-sm tracking-wide shadow-lg shadow-[#0043DC]/25 active:scale-95 transition disabled:opacity-50"
           >
-            <Navigation className="w-4 h-4" />
+            <Navigation className="w-4 h-4 shrink-0" />
             <span>{isSubmitting ? 'DISPATCHING TO FLEET...' : 'DISPATCH TRIP & SEND PUSH NOTIFICATION'}</span>
           </button>
         </div>

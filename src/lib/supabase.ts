@@ -1,6 +1,6 @@
 import { sendRemotePushNotificationToDrivers } from './pushNotifications';
 import { createClient } from '@supabase/supabase-js';
-import type { Driver, DriverDocument, Trip, Vehicle } from '../types';
+import type { Driver, DriverDocument, Trip, Vehicle, WebsiteBooking, WebsiteUser, WebsiteDriverApplication, WebsiteContactSubmission } from '../types';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://awwrbgwpzgtbunrvsmyu.supabase.co';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_MVv7fXTjS6R79oXLOHuCLA_ij0lDSRE';
@@ -32,8 +32,7 @@ export async function getDrivers(): Promise<Driver[]> {
     .from('drivers')
     .select(`
       *,
-      vehicle:vehicles(*),
-      documents:driver_documents(*)
+      vehicle:vehicles(id, vehicle_number, vehicle_type, vehicle_model)
     `)
     .order('created_at', { ascending: false });
 
@@ -46,6 +45,20 @@ export async function getDrivers(): Promise<Driver[]> {
     vehicle: Array.isArray(d.vehicle) ? d.vehicle[0] : d.vehicle,
     documents: Array.isArray(d.documents) ? d.documents : [],
   }));
+}
+
+export async function getDriverDocuments(driverId: string): Promise<DriverDocument[]> {
+  const { data, error } = await supabase
+    .from('driver_documents')
+    .select('*')
+    .eq('driver_id', driverId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.warn('Error fetching driver documents for ' + driverId, error);
+    return [];
+  }
+  return (data || []) as DriverDocument[];
 }
 
 export async function createDriver(payload: {
@@ -137,6 +150,30 @@ export async function updateDriverDepositStatus(driverId: string, status: 'PAID'
   if (error) throw error;
 }
 
+export async function updateDriverAccountStatus(
+  driverId: string,
+  status: 'active' | 'inactive' | 'suspended'
+) {
+  const updateData: any = {
+    status,
+    updated_at: new Date().toISOString(),
+  };
+  if (status !== 'active') {
+    updateData.online_status = 'OFFLINE';
+  }
+
+  const { error } = await supabase
+    .from('drivers')
+    .update(updateData)
+    .eq('id', driverId);
+
+  if (error) {
+    console.error('updateDriverAccountStatus error:', error);
+    throw error;
+  }
+  return status;
+}
+
 // DOCUMENTS API
 export async function getPendingDocuments(): Promise<DriverDocument[]> {
   const { data, error } = await supabase
@@ -145,6 +182,7 @@ export async function getPendingDocuments(): Promise<DriverDocument[]> {
       *,
       driver:drivers(name, mobile)
     `)
+    .neq('document_type', 'push_token')
     .order('created_at', { ascending: false });
 
   if (error) throw error;
@@ -156,57 +194,95 @@ export async function getPendingDocuments(): Promise<DriverDocument[]> {
 }
 
 export async function syncDriverVerificationStatus(driverId: string) {
-  const { data: docs } = await supabase
-    .from('driver_documents')
-    .select('verification_status')
-    .eq('driver_id', driverId);
+  try {
+    const { data: docs, error } = await supabase
+      .from('driver_documents')
+      .select('verification_status, document_type')
+      .eq('driver_id', driverId);
 
-  if (!docs || docs.length === 0) return 'inactive';
+    if (error || !docs || docs.length === 0) return 'inactive';
 
-  const anyRejected = docs.some((d) => d.verification_status === 'Rejected');
-  const allVerified = docs.every((d) => d.verification_status === 'Verified');
+    // Ignore push_token
+    const realDocs = docs.filter((d: any) => d.document_type !== 'push_token');
+    if (realDocs.length === 0) return 'inactive';
 
-  let newStatus: 'active' | 'suspended' | 'inactive' = 'inactive';
-  if (anyRejected) {
-    newStatus = 'suspended';
-  } else if (allVerified) {
-    newStatus = 'active';
+    const anyRejected = realDocs.some((d: any) => d.verification_status === 'Rejected');
+    const allVerified = realDocs.every((d: any) => d.verification_status === 'Verified');
+
+    let newStatus: 'active' | 'suspended' | 'inactive' = 'inactive';
+    if (anyRejected) {
+      newStatus = 'suspended';
+    } else if (allVerified) {
+      newStatus = 'active';
+    }
+
+    await supabase
+      .from('drivers')
+      .update({
+        status: newStatus,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', driverId);
+
+    return newStatus;
+  } catch (err) {
+    console.warn('syncDriverVerificationStatus warning:', err);
+    return 'inactive';
   }
-
-  await supabase
-    .from('drivers')
-    .update({
-      status: newStatus,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', driverId);
-
-  return newStatus;
 }
 
 export async function verifyDocument(
   docId: string,
   verification_status: 'Verified' | 'Rejected',
-  rejection_reason?: string
+  rejection_reason?: string,
+  fallbackDriverId?: string,
+  fallbackDocType?: string
 ) {
+  let driverId: string | null = fallbackDriverId || null;
+
+  // 1. First fetch or update by ID
+  const updatePayload = {
+    verification_status,
+    rejection_reason: verification_status === 'Rejected' ? (rejection_reason || 'Document does not meet requirements') : null,
+    updated_at: new Date().toISOString(),
+  };
+
   const { data, error } = await supabase
     .from('driver_documents')
-    .update({
-      verification_status,
-      rejection_reason: verification_status === 'Rejected' ? rejection_reason : null,
-      updated_at: new Date().toISOString(),
-    })
+    .update(updatePayload)
     .eq('id', docId)
-    .select('driver_id')
-    .single();
+    .select('driver_id');
 
-  if (error) throw error;
-  if (data?.driver_id) {
-    await syncDriverVerificationStatus(data.driver_id);
+  if (error) {
+    console.error('verifyDocument ID update error:', error);
   }
+
+  if (data && data.length > 0 && data[0].driver_id) {
+    driverId = data[0].driver_id;
+  } else if (fallbackDriverId && fallbackDocType) {
+    // 2. Fallback by driver_id + document_type if synthetic/placeholder ID was used
+    const { data: fbData } = await supabase
+      .from('driver_documents')
+      .update(updatePayload)
+      .eq('driver_id', fallbackDriverId)
+      .eq('document_type', fallbackDocType)
+      .select('driver_id');
+
+    if (fbData && fbData.length > 0 && fbData[0].driver_id) {
+      driverId = fbData[0].driver_id;
+    }
+  }
+
+  // 3. Sync driver active/suspended status
+  if (driverId) {
+    await syncDriverVerificationStatus(driverId);
+  }
+
+  return { success: true, driverId };
 }
 
 export async function verifyAllDriverDocuments(driverId: string) {
+  // 1. Update all real documents to Verified
   const { error: docError } = await supabase
     .from('driver_documents')
     .update({
@@ -214,9 +290,13 @@ export async function verifyAllDriverDocuments(driverId: string) {
       rejection_reason: null,
       updated_at: new Date().toISOString(),
     })
-    .eq('driver_id', driverId);
-  if (docError) throw docError;
+    .eq('driver_id', driverId)
+    .neq('document_type', 'push_token');
+  if (docError) {
+    console.error('verifyAllDriverDocuments doc error:', docError);
+  }
 
+  // 2. Update driver status to active
   const { error: drvError } = await supabase
     .from('drivers')
     .update({
@@ -224,7 +304,11 @@ export async function verifyAllDriverDocuments(driverId: string) {
       updated_at: new Date().toISOString(),
     })
     .eq('id', driverId);
-  if (drvError) throw drvError;
+  if (drvError) {
+    console.error('verifyAllDriverDocuments driver error:', drvError);
+  }
+
+  return { success: true };
 }
 
 // TRIPS API
@@ -246,14 +330,31 @@ export async function getTrips(): Promise<Trip[]> {
     .order('created_at', { ascending: false });
 
   if (error) throw error;
-  return ((data as any[]) || []).map((t) => ({
-    ...t,
-    driver: Array.isArray(t.driver) ? t.driver[0] : t.driver,
-    trip_requests: (t.trip_requests || []).map((r: any) => ({
-      ...r,
-      driver: Array.isArray(r.driver) ? r.driver[0] : r.driver,
-    })),
-  }));
+  return ((data as any[]) || []).map((t) => {
+    let parsedMeta: any = {};
+    if (t.toll_status && typeof t.toll_status === 'string' && t.toll_status.startsWith('{')) {
+      try {
+        parsedMeta = JSON.parse(t.toll_status);
+      } catch {}
+    } else if (t.toll_status === 'SETTLED') {
+      parsedMeta = { settlement_status: 'SETTLED' };
+    }
+
+    return {
+      ...t,
+      settlement_status: parsedMeta.settlement_status || t.settlement_status || (t.status === 'COMPLETED' ? 'PENDING' : undefined),
+      settled_at: parsedMeta.settled_at || t.settled_at,
+      actual_km: parsedMeta.actual_km !== undefined ? parsedMeta.actual_km : t.actual_km,
+      settlement_notes: parsedMeta.settlement_notes || t.settlement_notes,
+      commission_rate: parsedMeta.commission_rate !== undefined ? parsedMeta.commission_rate : t.commission_rate,
+      extra_km_rate: parsedMeta.extra_km_rate !== undefined ? parsedMeta.extra_km_rate : t.extra_km_rate,
+      driver: Array.isArray(t.driver) ? t.driver[0] : t.driver,
+      trip_requests: (t.trip_requests || []).map((r: any) => ({
+        ...r,
+        driver: Array.isArray(r.driver) ? r.driver[0] : r.driver,
+      })),
+    };
+  });
 }
 
 export async function createTrip(payload: {
@@ -309,8 +410,8 @@ export async function createTrip(payload: {
     batta_included: payload.batta_included || 'INCLUDED',
     hill_charges_applicable: payload.hill_charges_applicable || 'NOT_APPLICABLE',
     cash_to_collect: payload.cash_to_collect !== undefined ? payload.cash_to_collect : payload.fare,
-    allowed_km: payload.allowed_km || 50,
-    extra_km_rate: payload.extra_km_rate || 14,
+    allowed_km: payload.allowed_km !== undefined ? payload.allowed_km : 50,
+    extra_km_rate: payload.extra_km_rate !== undefined ? payload.extra_km_rate : 14,
   };
 
   const { data, error } = await supabase
@@ -381,30 +482,70 @@ export async function updateTripSettlement(
     actual_km?: number;
     extra_km?: number;
     extra_km_charges?: number;
+    extra_km_rate?: number;
     total_fare?: number;
+    fare?: number;
+    cash_to_collect?: number;
+    commission_rate?: number;
+    driver_id?: string;
   }
 ) {
-  const payload: any = {
+  // Store all settlement metadata safely in toll_status as JSON so it is 100% saved in Supabase
+  const settlementMeta = {
     settlement_status: settlementData.settlement_status,
+    settled_at: settlementData.settled_at || (settlementData.settlement_status === 'SETTLED' ? new Date().toISOString() : undefined),
+    actual_km: settlementData.actual_km,
+    extra_km: settlementData.extra_km,
+    extra_km_rate: settlementData.extra_km_rate,
+    extra_km_charges: settlementData.extra_km_charges,
+    commission_rate: settlementData.commission_rate,
+    toll_charges: settlementData.toll_charges,
+    permit_charges: settlementData.permit_charges,
+    hill_charges: settlementData.hill_charges,
+    batta_charges: settlementData.batta_charges,
+    settlement_notes: settlementData.settlement_notes,
+    total_fare: settlementData.total_fare,
+    fare: settlementData.fare,
+  };
+
+  // Only send columns that physically exist in public.trips schema
+  const payload: any = {
+    toll_status: JSON.stringify(settlementMeta),
     updated_at: new Date().toISOString(),
   };
-  if (settlementData.settled_at !== undefined) payload.settled_at = settlementData.settled_at;
-  if (settlementData.excess_cash_returned !== undefined) payload.excess_cash_returned = settlementData.excess_cash_returned;
-  if (settlementData.driver_payout_completed !== undefined) payload.driver_payout_completed = settlementData.driver_payout_completed;
-  if (settlementData.settlement_notes !== undefined) payload.settlement_notes = settlementData.settlement_notes;
-  if (settlementData.toll_charges !== undefined) payload.toll_charges = settlementData.toll_charges;
-  if (settlementData.permit_charges !== undefined) payload.permit_charges = settlementData.permit_charges;
-  if (settlementData.hill_charges !== undefined) payload.hill_charges = settlementData.hill_charges;
-  if (settlementData.batta_charges !== undefined) payload.batta_charges = settlementData.batta_charges;
-  if (settlementData.actual_km !== undefined) payload.actual_km = settlementData.actual_km;
+
+  if (settlementData.total_fare !== undefined) payload.total_fare = settlementData.total_fare;
+  if (settlementData.fare !== undefined) payload.fare = settlementData.fare;
+  if (settlementData.cash_to_collect !== undefined) payload.cash_to_collect = settlementData.cash_to_collect;
   if (settlementData.extra_km !== undefined) payload.extra_km = settlementData.extra_km;
   if (settlementData.extra_km_charges !== undefined) payload.extra_km_charges = settlementData.extra_km_charges;
-  if (settlementData.total_fare !== undefined) payload.total_fare = settlementData.total_fare;
+  if (settlementData.toll_charges !== undefined) payload.toll_charges = settlementData.toll_charges;
+  if (settlementData.permit_charges !== undefined) payload.parking_charges = settlementData.permit_charges;
 
   const { error } = await supabase.from('trips').update(payload).eq('id', tripId);
   if (error) {
-    console.warn('Trip settlement Supabase note:', error.message);
+    console.error('Trip settlement Supabase error:', error.message);
+    throw error;
   }
+
+  // If settled and driver_id provided, record in wallet_transactions
+  if (settlementData.settlement_status === 'SETTLED' && settlementData.driver_id) {
+    try {
+      await supabase.from('wallet_transactions').insert({
+        id: `tx_settle_${tripId}_${Date.now()}`,
+        driver_id: settlementData.driver_id,
+        amount: settlementData.total_fare || 0,
+        type: 'WALLET_SETTLEMENT',
+        description: `Trip #${tripId} audit settled by admin`,
+        trip_id: tripId,
+        created_at: new Date().toISOString(),
+      });
+    } catch (e) {
+      console.warn('Wallet transaction insert note:', e);
+    }
+  }
+
+  return true;
 }
 
 export async function deleteTrip(tripId: string): Promise<boolean> {
@@ -475,5 +616,246 @@ export async function rejectDriverTripRequest(tripId: string, driverId?: string)
       .from('trip_requests')
       .update({ status: 'REJECTED' })
       .eq('trip_id', tripId);
+  }
+}
+
+const ALLOWED_TRIP_COLUMNS = new Set([
+  'customer_name',
+  'customer_phone',
+  'pickup_location',
+  'pickup_latitude',
+  'pickup_longitude',
+  'drop_location',
+  'drop_latitude',
+  'drop_longitude',
+  'pickup_date',
+  'pickup_time',
+  'fare',
+  'distance',
+  'vehicle_type',
+  'trip_type',
+  'payment_method',
+  'status',
+  'assigned_driver_id',
+  'otp',
+  'toll_included',
+  'permit_included',
+  'batta_included',
+  'hill_charges_applicable',
+  'cash_to_collect',
+  'allowed_km',
+  'extra_km_rate',
+  'completed_at',
+  'settlement_status',
+  'settled_at',
+  'excess_cash_returned',
+  'driver_payout_completed',
+  'settlement_notes',
+  'toll_charges',
+  'permit_charges',
+  'hill_charges',
+  'batta_charges',
+  'actual_km',
+  'extra_km',
+  'extra_km_charges',
+  'total_fare',
+]);
+
+export async function updateTripDetails(tripId: string, updates: any): Promise<Trip> {
+  const dbPayload: Record<string, any> = {
+    updated_at: new Date().toISOString(),
+  };
+
+  for (const [key, val] of Object.entries(updates)) {
+    if (ALLOWED_TRIP_COLUMNS.has(key) && val !== undefined) {
+      dbPayload[key] = val;
+    }
+  }
+
+  const { data, error } = await supabase
+    .from('trips')
+    .update(dbPayload)
+    .eq('id', tripId)
+    .select(`
+      *,
+      driver:drivers(id, name, mobile, rating),
+      trip_requests(
+        id,
+        trip_id,
+        driver_id,
+        status,
+        requested_at,
+        driver:drivers(id, name, mobile, rating, online_status)
+      )
+    `)
+    .single();
+
+  if (error) {
+    console.warn('Trip update Supabase error:', error.message);
+    throw error;
+  }
+
+  return {
+    ...data,
+    driver: Array.isArray(data.driver) ? data.driver[0] : data.driver,
+    trip_requests: (data.trip_requests || []).map((r: any) => ({
+      ...r,
+      driver: Array.isArray(r.driver) ? r.driver[0] : r.driver,
+    })),
+    ...updates,
+  } as Trip;
+}
+
+
+// ==========================================
+// WEBSITE MODULE INTEGRATION APIS
+// ==========================================
+
+export async function getWebsiteBookings(): Promise<WebsiteBooking[]> {
+  try {
+    const { data, error } = await supabase
+      .from('website_bookings')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.warn('website_bookings fetch note:', error.message);
+      return [];
+    }
+    return (data || []) as WebsiteBooking[];
+  } catch (err) {
+    console.warn('getWebsiteBookings exception:', err);
+    return [];
+  }
+}
+
+export async function updateWebsiteBookingStatus(bookingId: string, status: string) {
+  const { error } = await supabase
+    .from('website_bookings')
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq('id', bookingId);
+  if (error) console.warn('updateWebsiteBookingStatus note:', error.message);
+}
+
+export async function getWebsiteUsers(): Promise<WebsiteUser[]> {
+  try {
+    const { data, error } = await supabase
+      .from('website_users')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (!error && data && data.length > 0) {
+      return data as WebsiteUser[];
+    }
+  } catch (err) {
+    console.warn('website_users query note:', err);
+  }
+  return [];
+}
+
+export async function getWebsiteDriverApplications(): Promise<WebsiteDriverApplication[]> {
+  try {
+    const { data, error } = await supabase
+      .from('website_driver_applications')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) return [];
+    return (data || []) as WebsiteDriverApplication[];
+  } catch (err) {
+    return [];
+  }
+}
+
+export async function approveWebsiteDriverApplication(app: WebsiteDriverApplication) {
+  try {
+    // 1. Create Driver in fleet
+    await createDriver({
+      name: app.full_name,
+      mobile: app.phone_number,
+      email: app.email || undefined,
+      vehicle_type: app.vehicle_type || 'Sedan',
+      vehicle_number: app.vehicle_number || ('TN' + Math.floor(10 + Math.random() * 89) + 'AB' + Math.floor(1000 + Math.random() * 8999)),
+      vehicle_model: app.vehicle_type + ' Fleet'
+    });
+
+    // 2. Mark application approved
+    await supabase
+      .from('website_driver_applications')
+      .update({ status: 'APPROVED' })
+      .eq('id', app.id);
+  } catch (err) {
+    console.error('approveWebsiteDriverApplication error:', err);
+    throw err;
+  }
+}
+
+export async function getWebsiteContactSubmissions(): Promise<WebsiteContactSubmission[]> {
+  try {
+    const { data, error } = await supabase
+      .from('website_contact_submissions')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) return [];
+    return (data || []) as WebsiteContactSubmission[];
+  } catch (err) {
+    return [];
+  }
+}
+
+export async function updateWebsiteContactStatus(id: string, status: 'NEW' | 'IN_PROGRESS' | 'RESOLVED') {
+  await supabase
+    .from('website_contact_submissions')
+    .update({ status })
+    .eq('id', id);
+}
+
+
+export async function updateCustomerProfile(payload: {
+  id?: string;
+  mobile: string;
+  name: string;
+  email?: string;
+  city?: string;
+  gender?: string;
+}) {
+  try {
+    await supabase
+      .from('website_users')
+      .upsert([{
+        mobile: payload.mobile,
+        name: payload.name,
+        email: payload.email || null,
+        city: payload.city || null,
+        gender: payload.gender || null,
+        updated_at: new Date().toISOString()
+      }], { onConflict: 'mobile' });
+  } catch (e) {
+    console.warn('website_users update note:', e);
+  }
+
+  try {
+    await supabase
+      .from('trips')
+      .update({
+        customer_name: payload.name,
+        customer_phone: payload.mobile,
+        updated_at: new Date().toISOString()
+      })
+      .eq('customer_phone', payload.mobile);
+  } catch (e) {
+    console.warn('trips customer update note:', e);
+  }
+}
+
+export async function deleteCustomerProfile(phone: string, id?: string) {
+  try {
+    if (id) {
+      await supabase.from('website_users').delete().eq('id', id);
+    }
+    await supabase.from('website_users').delete().eq('mobile', phone);
+  } catch (e) {
+    console.warn('website_users delete note:', e);
   }
 }

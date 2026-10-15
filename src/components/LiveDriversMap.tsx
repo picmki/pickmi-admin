@@ -1,3 +1,4 @@
+import { supabase } from '../lib/supabase';
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import {
   MapPin,
@@ -22,6 +23,7 @@ import {
   ChevronRight,
   Maximize2,
   Sparkles,
+  AlertCircle,
 } from 'lucide-react';
 import type { Driver, Trip, VehicleType } from '../types';
 
@@ -48,47 +50,12 @@ export const CITIES: CityHub[] = [
   { id: 'kochi', name: 'Kochi', state: 'Kerala', lat: 9.9312, lng: 76.2673, zoom: 13 },
 ];
 
-// Pre-seeded locations for cities
-const DEFAULT_COORDS_BY_CITY: Record<string, { lat: number; lng: number }[]> = {
-  bengaluru: [
-    { lat: 12.9716, lng: 77.5946 }, // MG Road
-    { lat: 12.9352, lng: 77.6245 }, // Koramangala
-    { lat: 12.9279, lng: 77.6271 }, // BTM
-    { lat: 12.9784, lng: 77.6408 }, // Indiranagar
-    { lat: 13.0358, lng: 77.597 },  // Hebbal
-    { lat: 12.9063, lng: 77.5857 }, // Jayanagar
-    { lat: 12.8452, lng: 77.6602 }, // Electronic City
-    { lat: 12.9902, lng: 77.7126 }, // Whitefield
-  ],
-  chennai: [
-    { lat: 13.0827, lng: 80.2707 }, // Central
-    { lat: 13.0418, lng: 80.2341 }, // T. Nagar
-    { lat: 13.085, lng: 80.2101 },  // Anna Nagar
-    { lat: 12.9815, lng: 80.218 },  // Guindy
-    { lat: 12.9941, lng: 80.1709 }, // Airport Area
-  ],
-  coimbatore: [
-    { lat: 11.0168, lng: 76.9558 }, // Town Hall
-    { lat: 11.0183, lng: 76.9644 }, // Gandhipuram
-    { lat: 11.0094, lng: 76.9442 }, // RS Puram
-    { lat: 11.0289, lng: 77.0012 }, // Peelamedu Airport
-  ],
-  mysuru: [
-    { lat: 12.2958, lng: 76.6394 }, // Palace / Bus Stand
-    { lat: 12.3312, lng: 76.6214 }, // Gokulam
-    { lat: 12.3168, lng: 76.6432 }, // Jayalakshmipuram
-  ],
-  hyderabad: [
-    { lat: 17.385, lng: 78.4867 },  // Abids
-    { lat: 17.4435, lng: 78.3772 }, // HITEC City
-    { lat: 17.4156, lng: 78.4354 }, // Banjara Hills
-    { lat: 17.4399, lng: 78.4983 }, // Secunderabad
-  ],
-};
 
 interface LiveDriversMapProps {
   drivers: Driver[];
   trips: Trip[];
+  onRefresh?: () => Promise<void> | void;
+  isRefreshing?: boolean;
   onAssignTrip?: (tripId: string, driverId: string) => Promise<void>;
   onViewDriverDetails?: (driverId: string) => void;
 }
@@ -96,23 +63,55 @@ interface LiveDriversMapProps {
 export const LiveDriversMap: React.FC<LiveDriversMapProps> = ({
   drivers,
   trips,
+  onRefresh,
+  isRefreshing = false,
   onAssignTrip,
   onViewDriverDetails,
 }) => {
+  const [isRefreshingLocal, setIsRefreshingLocal] = useState(false);
+  const hasAutoCenteredRef = useRef(false);
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<any>(null);
   const markersRef = useRef<{ [key: string]: any }>({});
 
-  const [selectedCityId, setSelectedCityId] = useState<string>('bengaluru');
+  const [selectedCityId, setSelectedCityId] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'ONLINE' | 'ON_TRIP' | 'OFFLINE'>('ONLINE');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'ONLINE' | 'GPS_ONLY' | 'ON_TRIP' | 'OFFLINE'>('ONLINE');
   const [vehicleFilter, setVehicleFilter] = useState<'ALL' | VehicleType>('ALL');
   const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null);
-  const [isSimulatingGps, setIsSimulatingGps] = useState(true);
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   const [selectedTripToAssign, setSelectedTripToAssign] = useState<string>('');
   const [isAssigning, setIsAssigning] = useState(false);
   const [lastPingTime, setLastPingTime] = useState<string>('Just now');
+  const [realtimeLocations, setRealtimeLocations] = useState<Record<string, { lat: number; lng: number; speed?: number; heading?: number; city?: string; updatedAt: string }>>({});
+
+  // Realtime WebSocket GPS stream directly from Driver Mobile App
+  useEffect(() => {
+    const channel = supabase
+      .channel('fleet_live_locations')
+      .on('broadcast', { event: 'driver_location' }, ({ payload }) => {
+        if (payload && payload.driverId && typeof payload.lat === 'number' && typeof payload.lng === 'number') {
+          console.log('[LiveMap] Live GPS from driver:', payload.driverId, payload.lat, payload.lng);
+          setRealtimeLocations((prev) => ({
+            ...prev,
+            [payload.driverId]: {
+              lat: payload.lat,
+              lng: payload.lng,
+              speed: payload.speed,
+              heading: payload.heading,
+              city: payload.city,
+              updatedAt: payload.timestamp || new Date().toISOString(),
+            },
+          }));
+          setLastPingTime('Live GPS • Just now');
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   // Filter available trips for quick dispatch
   const unassignedTrips = useMemo(() => {
@@ -126,44 +125,58 @@ export const LiveDriversMap: React.FC<LiveDriversMapProps> = ({
 
   // Compute resolved coordinates and assigned city for each driver
   const liveDriversWithCoords = useMemo(() => {
-    return drivers.map((d, index) => {
-      let city = d.current_city;
-      if (!city) {
-        if (index % 5 === 0) city = 'bengaluru';
-        else if (index % 5 === 1) city = 'chennai';
-        else if (index % 5 === 2) city = 'coimbatore';
-        else if (index % 5 === 3) city = 'mysuru';
-        else city = 'hyderabad';
-      }
-
-      let lat = d.current_latitude;
-      let lng = d.current_longitude;
-
-      if (!lat || !lng) {
-        const pool = DEFAULT_COORDS_BY_CITY[city.toLowerCase()] || DEFAULT_COORDS_BY_CITY['bengaluru'];
-        const coord = pool[index % pool.length];
-        lat = coord.lat + (Math.sin(index + 1) * 0.008);
-        lng = coord.lng + (Math.cos(index + 1) * 0.008);
-      }
-
+    return drivers.map((d) => {
       const activeTrip = trips.find(
         (t) =>
           t.assigned_driver_id === d.id &&
-          (t.status === 'ASSIGNED' || t.status === 'ACCEPTED' || t.status === 'ON_THE_WAY' || t.status === 'ARRIVED' || t.status === 'STARTED')
+          ['ASSIGNED', 'ACCEPTED', 'ON_THE_WAY', 'ARRIVED', 'STARTED'].includes(t.status)
       );
+
+      const liveGps = realtimeLocations[d.id];
+      const hasRealGps = Boolean(liveGps && typeof liveGps.lat === 'number' && typeof liveGps.lng === 'number');
+
+      // Strictly resolve REAL Coordinates: Live Mobile GPS > Active trip pickup coords > DB coords
+      let lat: number | null = null;
+      let lng: number | null = null;
+      let locationSource: 'live_mobile' | 'active_trip' | 'db_coords' | 'none' = 'none';
+
+      if (hasRealGps) {
+        lat = Number(liveGps.lat);
+        lng = Number(liveGps.lng);
+        locationSource = 'live_mobile';
+      } else if (d.current_latitude && d.current_longitude) {
+        lat = Number(d.current_latitude);
+        lng = Number(d.current_longitude);
+        locationSource = 'db_coords';
+      } else if (activeTrip && activeTrip.pickup_latitude && activeTrip.pickup_longitude) {
+        lat = Number(activeTrip.pickup_latitude);
+        lng = Number(activeTrip.pickup_longitude);
+        locationSource = 'active_trip';
+      }
+
+      // Resolve City
+      let city = liveGps?.city || d.current_city;
+      if (!city && activeTrip && activeTrip.pickup_location) {
+        city = activeTrip.pickup_location.split(',')[0].trim();
+      }
+      if (!city) {
+        city = '';
+      }
 
       return {
         ...d,
         current_city: city,
         current_latitude: lat,
         current_longitude: lng,
+        hasRealGps,
+        locationSource,
         activeTrip,
-        speed: d.speed ?? (d.online_status === 'ONLINE' ? Math.floor(20 + Math.random() * 35) : 0),
-        heading: d.heading ?? Math.floor(Math.random() * 360),
-        battery_level: d.battery_level ?? Math.floor(65 + Math.random() * 35),
+        speed: liveGps?.speed ?? d.speed ?? 0,
+        heading: liveGps?.heading ?? d.heading ?? 0,
+        battery_level: (d as any).battery_level ?? null,
       };
     });
-  }, [drivers, trips]);
+  }, [drivers, trips, realtimeLocations]);
 
   // Filter drivers based on city, search, status, and vehicle type
   const filteredDrivers = useMemo(() => {
@@ -177,6 +190,7 @@ export const LiveDriversMap: React.FC<LiveDriversMapProps> = ({
       }
 
       // Status filter
+      if (statusFilter === 'GPS_ONLY' && !d.hasRealGps) return false;
       if (statusFilter === 'ONLINE' && d.online_status !== 'ONLINE') return false;
       if (statusFilter === 'OFFLINE' && d.online_status !== 'OFFLINE') return false;
       if (statusFilter === 'ON_TRIP' && (!d.activeTrip || d.online_status !== 'ONLINE')) return false;
@@ -209,8 +223,10 @@ export const LiveDriversMap: React.FC<LiveDriversMapProps> = ({
     const online = driversInCity.filter((d) => d.online_status === 'ONLINE').length;
     const onTrip = driversInCity.filter((d) => d.online_status === 'ONLINE' && d.activeTrip).length;
     const idle = online - onTrip;
+    const withLiveGps = driversInCity.filter((d) => d.hasRealGps).length;
+    const mapped = driversInCity.filter((d) => d.current_latitude && d.current_longitude).length;
 
-    return { total, online, onTrip, idle };
+    return { total, online, onTrip, idle, withLiveGps, mapped };
   }, [liveDriversWithCoords, selectedCityId]);
 
   // Initialize Leaflet Map
@@ -267,24 +283,92 @@ export const LiveDriversMap: React.FC<LiveDriversMapProps> = ({
     }
   }, [selectedCity]);
 
-  // Update Markers
+  // Center map bounds to encompass all active mapped drivers
+  const fitMapToDrivers = () => {
+    const map = mapInstanceRef.current;
+    const L = (window as any).L;
+    if (!map || !L) return;
+
+    const mapped = filteredDrivers.filter(
+      (d) => typeof d.current_latitude === 'number' && typeof d.current_longitude === 'number'
+    );
+
+    if (mapped.length === 1) {
+      map.flyTo([mapped[0].current_latitude!, mapped[0].current_longitude!], 15, { duration: 0.8 });
+    } else if (mapped.length > 1) {
+      const bounds = L.latLngBounds(mapped.map((d) => [d.current_latitude!, d.current_longitude!]));
+      map.fitBounds(bounds, { padding: [60, 60], maxZoom: 15 });
+    } else {
+      map.flyTo([selectedCity.lat, selectedCity.lng], selectedCity.zoom, { duration: 0.8 });
+    }
+  };
+
+  // Refresh handler: reloads database records and pings Realtime channel
+  const handleRefresh = async () => {
+    setIsRefreshingLocal(true);
+    try {
+      // 1. Request live drivers to broadcast their current GPS fix
+      try {
+        const channel = supabase.channel('fleet_live_locations');
+        channel.send({
+          type: 'broadcast',
+          event: 'ping_request',
+          payload: { timestamp: new Date().toISOString() },
+        });
+      } catch {}
+
+      // 2. Trigger parent data reload from Supabase
+      if (onRefresh) {
+        await onRefresh();
+      }
+
+      setLastPingTime('Refreshed • Just now');
+
+      // 3. Re-fit to active drivers
+      setTimeout(() => {
+        fitMapToDrivers();
+      }, 500);
+    } finally {
+      setTimeout(() => {
+        setIsRefreshingLocal(false);
+      }, 600);
+    }
+  };
+
+  // Auto-center on drivers when coordinates first become available
+  useEffect(() => {
+    const mapped = filteredDrivers.filter(
+      (d) => typeof d.current_latitude === 'number' && typeof d.current_longitude === 'number'
+    );
+    if (mapped.length > 0 && !hasAutoCenteredRef.current && mapInstanceRef.current) {
+      hasAutoCenteredRef.current = true;
+      setTimeout(fitMapToDrivers, 300);
+    }
+  }, [filteredDrivers]);
+
+  // Update Markers: ONLY render drivers with REAL verified GPS coordinates
   useEffect(() => {
     const map = mapInstanceRef.current;
     const L = (window as any).L;
     if (!map || !L) return;
 
-    // Remove deleted markers
+    // Remove deleted markers or markers for drivers who don't have coordinates
     Object.keys(markersRef.current).forEach((driverId) => {
-      if (!filteredDrivers.find((d) => d.id === driverId)) {
+      const match = filteredDrivers.find((d) => d.id === driverId);
+      if (!match || !match.current_latitude || !match.current_longitude) {
         markersRef.current[driverId].remove();
         delete markersRef.current[driverId];
       }
     });
 
-    // Add or update markers
+    // Add or update markers ONLY for drivers with real coordinates
     filteredDrivers.forEach((driver) => {
-      const lat = driver.current_latitude!;
-      const lng = driver.current_longitude!;
+      if (!driver.current_latitude || !driver.current_longitude) {
+        return; // Skip: Never place fake markers
+      }
+
+      const lat = driver.current_latitude;
+      const lng = driver.current_longitude;
       const isOnline = driver.online_status === 'ONLINE';
       const isOnTrip = Boolean(driver.activeTrip);
       const isSelected = selectedDriver?.id === driver.id;
@@ -307,7 +391,7 @@ export const LiveDriversMap: React.FC<LiveDriversMapProps> = ({
           </div>
           <div class="absolute top-11 left-1/2 -translate-x-1/2 whitespace-nowrap bg-slate-900/90 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow pointer-events-none flex items-center gap-1">
             <span class="w-1.5 h-1.5 rounded-full" style="background-color: ${markerColor};"></span>
-            ${driver.name.split(' ')[0]}
+            ${driver.name.split(' ')[0]} ${driver.hasRealGps ? '🟢' : ''}
           </div>
         </div>
       `;
@@ -332,28 +416,6 @@ export const LiveDriversMap: React.FC<LiveDriversMapProps> = ({
     });
   }, [filteredDrivers, selectedDriver]);
 
-  // GPS Simulation interval
-  useEffect(() => {
-    if (!isSimulatingGps) return;
-
-    const interval = setInterval(() => {
-      setLastPingTime(new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
-
-      filteredDrivers.forEach((driver) => {
-        if (driver.online_status !== 'ONLINE') return;
-        const marker = markersRef.current[driver.id];
-        if (marker) {
-          const currentPos = marker.getLatLng();
-          const deltaLat = (Math.random() - 0.48) * 0.0004;
-          const deltaLng = (Math.random() - 0.48) * 0.0004;
-          marker.setLatLng([currentPos.lat + deltaLat, currentPos.lng + deltaLng]);
-        }
-      });
-    }, 3000);
-
-    return () => clearInterval(interval);
-  }, [isSimulatingGps, filteredDrivers]);
-
   const handleSelectDriver = (driver: Driver) => {
     setSelectedDriver(driver);
     if (mapInstanceRef.current && driver.current_latitude && driver.current_longitude) {
@@ -376,9 +438,9 @@ export const LiveDriversMap: React.FC<LiveDriversMapProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-5rem)] bg-slate-50 overflow-hidden rounded-2xl border border-slate-200">
+    <div className="flex flex-col min-h-[550px] h-[calc(100vh-8rem)] md:h-[calc(100vh-5rem)] bg-slate-50 overflow-hidden rounded-2xl border border-slate-200">
       {/* ── Top Bar: City Selector & Telemetry Banner ── */}
-      <div className="bg-white border-b border-slate-200 px-6 py-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 z-20">
+      <div className="bg-white border-b border-slate-200 px-3 sm:px-6 py-3 sm:py-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 sm:gap-4 z-20">
         <div>
           <div className="flex items-center space-x-2">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
@@ -393,7 +455,7 @@ export const LiveDriversMap: React.FC<LiveDriversMapProps> = ({
         </div>
 
         {/* City Filter Pills */}
-        <div className="flex items-center gap-2 overflow-x-auto max-w-full pb-1 md:pb-0">
+        <div className="flex items-center gap-2 overflow-x-auto max-w-full pb-1 md:pb-0 no-scrollbar">
           <span className="text-xs font-bold text-slate-500 flex items-center gap-1 flex-shrink-0">
             <MapPin className="w-3.5 h-3.5 text-[#0043DC]" />
             Select City:
@@ -429,7 +491,7 @@ export const LiveDriversMap: React.FC<LiveDriversMapProps> = ({
       </div>
 
       {/* ── Sub-header: City Stats & Controls ── */}
-      <div className="bg-slate-50/80 backdrop-blur px-6 py-2.5 border-b border-slate-200 flex flex-wrap items-center justify-between text-xs gap-4 z-10">
+      <div className="bg-slate-50/80 backdrop-blur px-3 sm:px-6 py-2 border-b border-slate-200 flex flex-wrap items-center justify-between text-xs gap-2 sm:gap-4 z-10">
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-2">
             <span className="text-slate-500 font-semibold">Active in {selectedCity.name}:</span>
@@ -439,7 +501,11 @@ export const LiveDriversMap: React.FC<LiveDriversMapProps> = ({
           </div>
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-            <span className="text-slate-600 font-bold">{cityStats.idle} Available (Idle)</span>
+            <span className="text-slate-600 font-bold">{cityStats.idle} Available</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span>
+            <span className="text-slate-700 font-extrabold">{cityStats.withLiveGps} Live GPS Broadcasts</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-amber-500"></span>
@@ -449,17 +515,28 @@ export const LiveDriversMap: React.FC<LiveDriversMapProps> = ({
 
         <div className="flex items-center gap-3">
           <button
-            onClick={() => setIsSimulatingGps((prev) => !prev)}
-            className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 border transition ${
-              isSimulatingGps
-                ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
-                : 'bg-white text-slate-600 border-slate-300'
-            }`}
-            title="Simulates real-time GPS telemetry movement on roads"
+            onClick={handleRefresh}
+            disabled={isRefreshing || isRefreshingLocal}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 shadow-xs text-xs font-bold transition active:scale-95 disabled:opacity-60 cursor-pointer"
+            title="Refresh Drivers & GPS Radar"
           >
-            <Zap className={`w-3.5 h-3.5 ${isSimulatingGps ? 'text-emerald-600 animate-bounce' : 'text-slate-400'}`} />
-            <span>Simulate GPS Stream: {isSimulatingGps ? 'ON' : 'PAUSED'}</span>
+            <RefreshCw className={`w-3.5 h-3.5 text-[#0043DC] ${isRefreshing || isRefreshingLocal ? 'animate-spin' : ''}`} />
+            <span>Refresh Map</span>
           </button>
+
+          <button
+            onClick={fitMapToDrivers}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 text-xs font-bold transition active:scale-95 cursor-pointer"
+            title="Center Camera on Active Drivers"
+          >
+            <Navigation className="w-3.5 h-3.5 text-[#0043DC]" />
+            <span>Center on Fleet</span>
+          </button>
+
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-bold shadow-2xs">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span>Live GPS Stream: Active</span>
+          </div>
 
           {unassignedTrips.length > 0 && (
             <span className="px-2.5 py-1 rounded-lg bg-blue-50 text-[#0043DC] font-extrabold border border-blue-200">
@@ -472,8 +549,43 @@ export const LiveDriversMap: React.FC<LiveDriversMapProps> = ({
       {/* ── Main Map & Fleet List Container ── */}
       <div className="flex-1 flex flex-col lg:flex-row relative overflow-hidden">
         {/* Real Leaflet Map */}
-        <div className="flex-1 h-full relative">
+        <div className="w-full lg:flex-1 h-72 sm:h-96 lg:h-full relative shrink-0">
           <div ref={mapContainerRef} className="w-full h-full z-0" />
+
+          {/* Floating Map Quick Action Icons (Top-Right) */}
+          <div className="absolute top-4 right-4 z-10 flex flex-col gap-2">
+            <button
+              onClick={handleRefresh}
+              disabled={isRefreshing || isRefreshingLocal}
+              className="w-10 h-10 rounded-xl bg-white/95 hover:bg-white text-slate-800 shadow-md border border-slate-200 flex items-center justify-center transition active:scale-90 disabled:opacity-50 cursor-pointer backdrop-blur"
+              title="Refresh Map & GPS Coordinates"
+            >
+              <RefreshCw className={`w-4 h-4 text-[#0043DC] ${isRefreshing || isRefreshingLocal ? 'animate-spin' : ''}`} />
+            </button>
+            <button
+              onClick={fitMapToDrivers}
+              className="w-10 h-10 rounded-xl bg-white/95 hover:bg-white text-slate-800 shadow-md border border-slate-200 flex items-center justify-center transition active:scale-90 cursor-pointer backdrop-blur"
+              title="Center Camera on Active Drivers"
+            >
+              <Navigation className="w-4 h-4 text-emerald-600" />
+            </button>
+          </div>
+
+          {/* Floating Radar Notice if no active GPS markers */}
+          {filteredDrivers.filter((d) => d.current_latitude && d.current_longitude).length === 0 && (
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur-md text-white px-5 py-3 rounded-2xl shadow-xl border border-slate-700/60 z-10 flex items-center gap-3 text-xs pointer-events-auto max-w-lg">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping shrink-0" />
+              <div>
+                <div className="font-extrabold text-white flex items-center gap-1.5">
+                  Live GPS Radar Listening
+                  <span className="text-[10px] px-1.5 py-0.2 bg-emerald-500/20 text-emerald-400 rounded border border-emerald-500/30 font-mono">0ms delay</span>
+                </div>
+                <div className="text-[11px] text-slate-300 mt-0.5">
+                  No fake pins are displayed. As soon as a driver opens the PickMi Driver app and goes Online, their real vehicle pin will appear here in real time.
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Floating Map Legend */}
           <div className="absolute top-4 left-4 bg-white/95 backdrop-blur-md rounded-xl p-3 border border-slate-200 shadow-md text-xs space-y-1.5 z-10 pointer-events-auto max-w-[200px]">
@@ -494,7 +606,7 @@ export const LiveDriversMap: React.FC<LiveDriversMapProps> = ({
         </div>
 
         {/* ── Right Side: Live Fleet Directory & Driver Details Drawer ── */}
-        <div className="w-full lg:w-96 bg-white border-l border-slate-200 flex flex-col h-full z-10 shadow-sm">
+        <div className="w-full lg:w-96 bg-white border-t lg:border-t-0 lg:border-l border-slate-200 flex flex-col flex-1 lg:flex-none lg:h-full z-10 shadow-sm overflow-hidden">
           {/* Search & Filters */}
           <div className="p-4 border-b border-slate-200 space-y-3">
             <div className="relative">
@@ -510,17 +622,17 @@ export const LiveDriversMap: React.FC<LiveDriversMapProps> = ({
 
             {/* Status Pills */}
             <div className="flex items-center gap-1.5">
-              {(['ONLINE', 'ON_TRIP', 'ALL'] as const).map((st) => (
+              {(['ONLINE', 'GPS_ONLY', 'ON_TRIP', 'ALL'] as const).map((st) => (
                 <button
                   key={st}
                   onClick={() => setStatusFilter(st)}
                   className={`flex-1 py-1 text-center rounded-lg text-xs font-bold transition ${
                     statusFilter === st
-                      ? 'bg-slate-900 text-white'
+                      ? 'bg-[#0043DC] text-white shadow-sm'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
-                  {st === 'ONLINE' ? 'Available' : st === 'ON_TRIP' ? 'On Trip' : 'All'}
+                  {st === 'ONLINE' ? 'Available' : st === 'GPS_ONLY' ? 'Live GPS' : st === 'ON_TRIP' ? 'On Trip' : 'All'}
                 </button>
               ))}
             </div>
@@ -592,21 +704,33 @@ export const LiveDriversMap: React.FC<LiveDriversMapProps> = ({
                       </p>
 
                       <div className="flex items-center justify-between mt-2">
-                        <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-tight ${
-                            isOnTrip
-                              ? 'bg-amber-100 text-amber-800'
-                              : isOnline
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : 'bg-slate-100 text-slate-600'
-                          }`}
-                        >
-                          {isOnTrip ? 'On Ride' : isOnline ? 'Available' : 'Offline'}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-tight ${
+                              isOnTrip
+                                ? 'bg-amber-100 text-amber-800'
+                                : isOnline
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : 'bg-slate-100 text-slate-600'
+                            }`}
+                          >
+                            {isOnTrip ? 'On Ride' : isOnline ? 'Available' : 'Offline'}
+                          </span>
+                          {driver.hasRealGps ? (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-emerald-600 text-white flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                              Live GPS
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-slate-100 text-slate-400">
+                              No GPS
+                            </span>
+                          )}
+                        </div>
 
                         <span className="text-[10px] text-slate-400 font-bold flex items-center gap-1">
                           <Gauge className="w-3 h-3 text-slate-400" />
-                          {driver.speed} km/h
+                          {driver.speed ? `${driver.speed} km/h` : '0 km/h'}
                         </span>
                       </div>
                     </div>
@@ -653,17 +777,27 @@ export const LiveDriversMap: React.FC<LiveDriversMapProps> = ({
               <div className="grid grid-cols-3 gap-2 bg-slate-800/80 rounded-xl p-2.5 mb-3 text-center">
                 <div>
                   <div className="text-[10px] text-slate-400 font-bold">SPEED</div>
-                  <div className="text-xs font-black text-white mt-0.5">{selectedDriver.speed} km/h</div>
+                  <div className="text-xs font-black text-white mt-0.5">
+                    {selectedDriver.speed ? `${selectedDriver.speed} km/h` : '0 km/h'}
+                  </div>
                 </div>
                 <div>
-                  <div className="text-[10px] text-slate-400 font-bold">BATTERY</div>
-                  <div className="text-xs font-black text-emerald-400 mt-0.5">{selectedDriver.battery_level}%</div>
+                  <div className="text-[10px] text-slate-400 font-bold">GPS SIGNAL</div>
+                  <div className={`text-xs font-black mt-0.5 ${(selectedDriver as any).hasRealGps ? 'text-emerald-400' : 'text-slate-400'}`}>
+                    {(selectedDriver as any).hasRealGps ? 'Live Active' : 'No Signal'}
+                  </div>
                 </div>
                 <div>
                   <div className="text-[10px] text-slate-400 font-bold">RATING</div>
                   <div className="text-xs font-black text-amber-400 mt-0.5">★ {selectedDriver.rating}</div>
                 </div>
               </div>
+              {!(selectedDriver as any).hasRealGps && (
+                <div className="mb-3 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-amber-400" />
+                  <span>No live GPS fix received yet. Driver must be Online in the PickMi Driver app with device GPS enabled.</span>
+                </div>
+              )}
 
               {/* Action Buttons */}
               <div className="flex gap-2">

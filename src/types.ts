@@ -28,7 +28,67 @@ export type NavTab =
   | "customers"
   | "documents"
   | "deposits"
-  | "schema";
+  | "schema"
+  | "website-bookings"
+  | "website-book-cab"
+  | "website-users"
+  | "website-applications"
+  | "website-inquiries"
+  | "customer-details";
+
+export interface WebsiteBooking {
+  id: string;
+  booking_number: string;
+  customer_name: string;
+  customer_phone: string;
+  customer_email?: string | null;
+  pickup_location: string;
+  drop_location: string;
+  pickup_date: string;
+  pickup_time: string;
+  trip_type: string;
+  vehicle_type: string;
+  estimated_fare: number;
+  distance_km: number;
+  status: string;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface WebsiteUser {
+  id: string;
+  mobile: string;
+  name?: string | null;
+  email?: string | null;
+  gender?: string | null;
+  city?: string | null;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface WebsiteDriverApplication {
+  id: string;
+  full_name: string;
+  phone_number: string;
+  email?: string | null;
+  city: string;
+  vehicle_type: string;
+  vehicle_number?: string | null;
+  license_number?: string | null;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  created_at: string;
+}
+
+export interface WebsiteContactSubmission {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string | null;
+  topic?: string;
+  message: string;
+  status: 'NEW' | 'IN_PROGRESS' | 'RESOLVED';
+  created_at: string;
+}
 
 export interface CustomerRecord {
   phone: string;
@@ -122,6 +182,8 @@ export interface Trip {
   trip_type: TripType;
   payment_method: string;
   extra_km_rate?: number;
+  rate_per_km?: number;
+  pricing_type?: 'FIXED' | 'KMS';
   allowed_km?: number;
   cash_to_collect?: number;
   toll_included?: 'INCLUDED' | 'EXCLUDED';

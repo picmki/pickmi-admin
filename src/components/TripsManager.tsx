@@ -1,3 +1,4 @@
+import { EditTripModal } from './EditTripModal';
 import React, { useState } from 'react';
 import {
   MapPin,
@@ -25,7 +26,9 @@ import {
   Calendar,
   ArrowRight,
   User,
-  KeyRound
+  KeyRound,
+  Pencil,
+  UserPlus
 } from 'lucide-react';
 import type { Driver, Trip, TripStatus } from '../types';
 
@@ -34,6 +37,7 @@ interface TripsManagerProps {
   drivers: Driver[];
   onOpenCreateModal: () => void;
   onUpdateTripStatus: (tripId: string, status: TripStatus, driverId?: string) => Promise<void>;
+  onUpdateTripDetails?: (tripId: string, updates: Partial<Trip>) => Promise<void>;
   onAssignDriver: (tripId: string, driverId: string) => Promise<void>;
   onApproveDriverRequest?: (tripId: string, driverId: string) => Promise<void>;
   onRejectDriverRequest?: (tripId: string, driverId?: string) => Promise<void>;
@@ -46,6 +50,7 @@ export const TripsManager: React.FC<TripsManagerProps> = ({
   drivers,
   onOpenCreateModal,
   onUpdateTripStatus,
+  onUpdateTripDetails,
   onAssignDriver,
   onApproveDriverRequest,
   onRejectDriverRequest,
@@ -53,10 +58,11 @@ export const TripsManager: React.FC<TripsManagerProps> = ({
   onViewDriverDetails,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedFilter, setSelectedFilter] = useState<'ALL' | TripStatus>('ALL');
+  const [selectedFilter, setSelectedFilter] = useState<'AVAILABLE' | 'ASSIGNED' | 'COMPLETED' | 'CANCELLED' | 'ALL'>('AVAILABLE');
   const [selectedTripForAssign, setSelectedTripForAssign] = useState<Trip | null>(null);
   const [selectedTripForDetails, setSelectedTripForDetails] = useState<Trip | null>(null);
   const [tripToDelete, setTripToDelete] = useState<Trip | null>(null);
+  const [tripToEdit, setTripToEdit] = useState<Trip | null>(null);
   const [tripToCancel, setTripToCancel] = useState<Trip | null>(null);
   const [selectedDriverId, setSelectedDriverId] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -65,14 +71,34 @@ export const TripsManager: React.FC<TripsManagerProps> = ({
 
   const onlineDrivers = drivers.filter((d) => d.online_status === 'ONLINE');
 
+  const countAvailable = trips.filter((t) => t.status === 'AVAILABLE' || t.status === 'REQUESTED').length;
+  const countAssigned = trips.filter((t) => ['ASSIGNED', 'ACCEPTED', 'ON_THE_WAY', 'ARRIVED', 'STARTED'].includes(t.status)).length;
+  const countCompleted = trips.filter((t) => t.status === 'COMPLETED').length;
+  const countCancelled = trips.filter((t) => t.status === 'CANCELLED').length;
+  const countAll = trips.length;
+
   const filteredTrips = trips.filter((t) => {
-    const matchesFilter = selectedFilter === 'ALL' ? true : t.status === selectedFilter;
+    let matchesFilter = true;
+    if (selectedFilter === 'AVAILABLE') {
+      matchesFilter = t.status === 'AVAILABLE' || t.status === 'REQUESTED';
+    } else if (selectedFilter === 'ASSIGNED') {
+      matchesFilter = ['ASSIGNED', 'ACCEPTED', 'ON_THE_WAY', 'ARRIVED', 'STARTED'].includes(t.status);
+    } else if (selectedFilter === 'COMPLETED') {
+      matchesFilter = t.status === 'COMPLETED';
+    } else if (selectedFilter === 'CANCELLED') {
+      matchesFilter = t.status === 'CANCELLED';
+    } else if (selectedFilter === 'ALL') {
+      matchesFilter = true;
+    }
+
     const matchesSearch =
       (t.trip_number || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (t.customer_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (t.customer_phone || '').includes(searchTerm) ||
       (t.pickup_location || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (t.drop_location || '').toLowerCase().includes(searchTerm.toLowerCase());
+      (t.drop_location || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      ((t.driver?.name || '').toLowerCase().includes(searchTerm.toLowerCase()));
+
     return matchesFilter && matchesSearch;
   });
 
@@ -226,28 +252,36 @@ export const TripsManager: React.FC<TripsManagerProps> = ({
       {/* Filter and Search Bar */}
       <div className="flex flex-col lg:flex-row gap-4 justify-between items-stretch lg:items-center bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
         {/* Status Badges */}
-        <div className="flex items-center space-x-1.5 overflow-x-auto pb-2 lg:pb-0">
-          {(['ALL', 'AVAILABLE', 'REQUESTED', 'ASSIGNED', 'ARRIVED', 'STARTED', 'COMPLETED', 'CANCELLED'] as const).map(
-            (status) => {
-              const count = status === 'ALL' ? trips.length : trips.filter((t) => t.status === status).length;
-              const isActive = selectedFilter === status;
-              return (
-                <button
-                  key={status}
-                  onClick={() => setSelectedFilter(status)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
-                    isActive
-                      ? 'bg-[#0043DC] text-white shadow-sm'
-                      : status === 'REQUESTED' && count > 0
-                      ? 'bg-amber-100 text-amber-900 border border-amber-300 font-black'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+        <div className="flex items-center space-x-1.5 overflow-x-auto pb-2 lg:pb-0 no-scrollbar">
+          {[
+            { key: 'AVAILABLE', label: 'Available Trips', count: countAvailable },
+            { key: 'ASSIGNED', label: 'Assigned Trips', count: countAssigned },
+            { key: 'COMPLETED', label: 'Completed Trips', count: countCompleted },
+            { key: 'CANCELLED', label: 'Cancelled Trips', count: countCancelled },
+            { key: 'ALL', label: 'All Trips', count: countAll },
+          ].map((tab) => {
+            const isActive = selectedFilter === tab.key;
+            return (
+              <button
+                key={tab.key}
+                onClick={() => setSelectedFilter(tab.key as any)}
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center space-x-2 ${
+                  isActive
+                    ? 'bg-[#0043DC] text-white shadow-sm ring-2 ring-[#0043DC]/20'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                }`}
+              >
+                <span>{tab.label}</span>
+                <span
+                  className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                    isActive ? 'bg-white/20 text-white' : 'bg-slate-200/80 text-slate-700'
                   }`}
                 >
-                  {status} ({count})
-                </button>
-              );
-            }
-          )}
+                  {tab.count}
+                </span>
+              </button>
+            );
+          })}
         </div>
 
         {/* Search */}
@@ -257,269 +291,482 @@ export const TripsManager: React.FC<TripsManagerProps> = ({
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search by trip #, customer, route..."
+            placeholder="Search by trip #, customer, route, driver..."
             className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-4 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0043DC]"
           />
         </div>
       </div>
 
-      {/* Trips Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-        {filteredTrips.map((trip) => {
-          return (
-            <div
-              key={trip.id}
-              className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4 hover:border-[#0043DC]/40 hover:shadow-md transition shadow-sm flex flex-col justify-between group"
-            >
-              <div className="space-y-3.5">
-                {/* Top Row: Trip Number, Vehicle Badge, Status & Delete Shortcut */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <span className="font-mono text-sm font-black text-slate-900">{trip.trip_number}</span>
-                    <span className="text-xs px-2 py-0.5 rounded-md bg-slate-100 font-semibold text-slate-600">
-                      {trip.vehicle_type}
-                    </span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${getStatusBadge(trip.status)}`}>
-                      {trip.status}
-                    </span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setTripToDelete(trip);
-                      }}
-                      className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
-                      title="Delete Trip"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Fare & Cash to Collect Banner */}
-                <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100">
-                  <div>
-                    <div className="text-[10px] uppercase font-bold text-slate-400">Total Trip Fare</div>
-                    <div className="text-xl font-black text-slate-900">₹{trip.fare}</div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-[10px] uppercase font-bold text-emerald-700">Driver Cash to Collect</div>
-                    <div className="text-lg font-black text-emerald-600">
-                      ₹{trip.cash_to_collect || trip.fare}
+      {/* Trips Table View */}
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+        <div className="hidden md:block overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-slate-50/80 border-b border-slate-200 text-[11px] font-black text-slate-500 uppercase tracking-wider">
+                <th className="py-3.5 px-4">Trip # / Vehicle</th>
+                <th className="py-3.5 px-4">Customer</th>
+                <th className="py-3.5 px-4 min-w-[220px]">Route & Distance</th>
+                <th className="py-3.5 px-4">Fare & Inclusions</th>
+                <th className="py-3.5 px-4 min-w-[190px]">Driver / Dispatch</th>
+                <th className="py-3.5 px-4">Status</th>
+                <th className="py-3.5 px-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 text-xs">
+              {filteredTrips.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-12 text-center text-slate-500">
+                    <div className="flex flex-col items-center justify-center space-y-2">
+                      <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
+                        <Car className="w-6 h-6" />
+                      </div>
+                      <div className="font-bold text-slate-700 text-sm">
+                        No {selectedFilter === 'ALL' ? '' : selectedFilter.toLowerCase()} trips found
+                      </div>
+                      <div className="text-xs text-slate-400 max-w-sm">
+                        {searchTerm ? `No trips matching "${searchTerm}"` : 'Dispatched trips in this category will appear here in real-time.'}
+                      </div>
+                      <button
+                        onClick={onOpenCreateModal}
+                        className="mt-2 px-3.5 py-1.5 rounded-xl bg-[#0043DC] hover:bg-[#0036b3] text-white font-bold text-xs shadow-sm transition"
+                      >
+                        + Dispatch New Trip
+                      </button>
                     </div>
-                  </div>
-                </div>
+                  </td>
+                </tr>
+              ) : (
+                filteredTrips.map((trip) => {
+                  const req = (trip.trip_requests || []).find((r) => r.status === 'PENDING') || trip.trip_requests?.[0];
+                  const reqDriver = req?.driver || (req?.driver_id ? drivers.find((d) => d.id === req.driver_id) : null);
+                  const reqDriverId = req?.driver_id || reqDriver?.id || '';
 
-                {/* Breakdown Badges */}
-                <div className="flex flex-wrap gap-1.5 pt-1">
-                  <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold border ${
-                    trip.toll_included === 'INCLUDED'
-                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                      : 'bg-rose-50 text-rose-700 border-rose-200'
-                  }`}>
-                    Toll: {trip.toll_included || 'INCLUDED'}
-                  </span>
-
-                  <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold border ${
-                    trip.permit_included === 'INCLUDED'
-                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                      : 'bg-slate-100 text-slate-600 border-slate-200'
-                  }`}>
-                    Permit: {trip.permit_included || 'EXCLUDED'}
-                  </span>
-
-                  <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold border ${
-                    trip.batta_included === 'INCLUDED'
-                      ? 'bg-blue-50 text-[#0043DC] border-blue-200'
-                      : 'bg-slate-100 text-slate-600 border-slate-200'
-                  }`}>
-                    Batta: {trip.batta_included || 'INCLUDED'}
-                  </span>
-
-                  {trip.hill_charges_applicable === 'APPLICABLE' && (
-                    <span className="text-[10px] px-2 py-0.5 rounded-md font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                      ⛰️ Hill Route
-                    </span>
-                  )}
-                </div>
-
-                {/* Distance & Extra Km Rule */}
-                <div className="text-[11px] text-slate-500 font-medium flex items-center justify-between border-t border-slate-100 pt-2">
-                  <span>Est: <strong>{trip.distance}</strong></span>
-                  <span>Limit: <strong>{trip.allowed_km || 50} km</strong></span>
-                  <span className="text-[#0043DC] font-bold">Extra: ₹{trip.extra_km_rate || 14}/km</span>
-                </div>
-
-                {/* Route */}
-                <div className="space-y-2 text-xs">
-                  <div className="flex items-start space-x-2">
-                    <div className="w-2 h-2 rounded-full bg-emerald-500 mt-1 flex-shrink-0" />
-                    <span className="text-slate-700 font-medium line-clamp-1">{trip.pickup_location}</span>
-                  </div>
-                  <div className="flex items-start space-x-2">
-                    <div className="w-2 h-2 rounded-full bg-rose-500 mt-1 flex-shrink-0" />
-                    <span className="text-slate-700 font-medium line-clamp-1">{trip.drop_location}</span>
-                  </div>
-                </div>
-
-                {/* Customer Info */}
-                <div className="flex items-center justify-between text-xs text-slate-600 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                  <span className="font-semibold text-slate-900">{trip.customer_name}</span>
-                  <span className="text-slate-500 font-mono">{trip.customer_phone}</span>
-                </div>
-
-                {/* Driver Info / Request Card */}
-                <div className="text-xs">
-                  {trip.status === 'REQUESTED' || (trip.trip_requests && trip.trip_requests.some((r) => r.status === 'PENDING')) ? (
-                    (() => {
-                      const req = (trip.trip_requests || []).find((r) => r.status === 'PENDING') || trip.trip_requests?.[0];
-                      const reqDriver = req?.driver || (req?.driver_id ? drivers.find((d) => d.id === req.driver_id) : null);
-                      const reqDriverId = req?.driver_id || reqDriver?.id || '';
-
-                      return (
-                        <div className="p-3 rounded-xl bg-amber-50 border-2 border-amber-300 space-y-2.5">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center space-x-2">
-                              <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
-                              <span className="text-[11px] font-black uppercase tracking-wider text-amber-900">
-                                🚕 Driver Requested Trip
-                              </span>
-                            </div>
-                            <span className="text-[10px] font-extrabold bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full">
-                              Pending Approval
+                  return (
+                    <tr
+                      key={trip.id}
+                      onClick={() => setSelectedTripForDetails(trip)}
+                      className="hover:bg-blue-50/40 transition-colors cursor-pointer group"
+                    >
+                      {/* Trip # & Vehicle */}
+                      <td className="py-3.5 px-4 align-top">
+                        <div className="space-y-1">
+                          <div className="flex items-center space-x-1.5">
+                            <span className="font-mono font-black text-slate-900 group-hover:text-[#0043DC] transition">
+                              {trip.trip_number}
+                            </span>
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                              {trip.vehicle_type}
                             </span>
                           </div>
+                          <div className="text-[11px] text-slate-500 flex items-center space-x-1">
+                            <Calendar className="w-3 h-3 text-slate-400 flex-shrink-0" />
+                            <span>{trip.pickup_date || 'Today'} • {trip.pickup_time || 'Now'}</span>
+                          </div>
+                          <div className="text-[10px] text-slate-400 font-medium">
+                            {trip.trip_type || 'One-way'}
+                          </div>
+                        </div>
+                      </td>
 
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <p className="font-extrabold text-slate-900 text-xs">
-                                {reqDriver?.name || 'Driver ' + reqDriverId.substring(0, 8)}
-                              </p>
-                              <p className="text-[11px] text-slate-500 font-mono">
-                                {reqDriver?.mobile || 'Phone on file'}
-                              </p>
+                      {/* Customer */}
+                      <td className="py-3.5 px-4 align-top">
+                        <div className="space-y-0.5">
+                          <div className="font-bold text-slate-900">
+                            {trip.customer_name}
+                          </div>
+                          <div className="font-mono text-slate-500 text-[11px] flex items-center space-x-1">
+                            <Phone className="w-3 h-3 text-slate-400" />
+                            <span>{trip.customer_phone}</span>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Route & Distance */}
+                      <td className="py-3.5 px-4 align-top">
+                        <div className="space-y-1">
+                          <div className="flex items-start space-x-1.5">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 mt-1 flex-shrink-0" />
+                            <span className="text-slate-800 font-medium text-xs line-clamp-1" title={trip.pickup_location}>
+                              {trip.pickup_location}
+                            </span>
+                          </div>
+                          <div className="flex items-start space-x-1.5">
+                            <span className="w-2 h-2 rounded-full bg-rose-500 mt-1 flex-shrink-0" />
+                            <span className="text-slate-800 font-medium text-xs line-clamp-1" title={trip.drop_location}>
+                              {trip.drop_location}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-slate-400 font-semibold pt-0.5 flex items-center space-x-2">
+                            <span>Est: <strong>{trip.distance}</strong></span>
+                            <span>•</span>
+                            <span>Limit: <strong>{trip.allowed_km || 50} km</strong></span>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Fare & Inclusions */}
+                      <td className="py-3.5 px-4 align-top">
+                        <div className="space-y-1">
+                          <div className="flex items-baseline space-x-1.5">
+                            <span className="font-black text-slate-900 text-sm">₹{trip.fare}</span>
+                            <span className="text-[10px] text-emerald-700 font-bold">
+                              (Collect: ₹{trip.cash_to_collect || trip.fare})
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            <span className={`text-[9px] px-1.5 py-0.2 rounded font-bold border ${
+                              trip.toll_included === 'INCLUDED' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200'
+                            }`}>
+                              Toll: {trip.toll_included === 'INCLUDED' ? 'INC' : 'EXC'}
+                            </span>
+                            <span className={`text-[9px] px-1.5 py-0.2 rounded font-bold border ${
+                              trip.permit_included === 'INCLUDED' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'
+                            }`}>
+                              Permit: {trip.permit_included === 'INCLUDED' ? 'INC' : 'EXC'}
+                            </span>
+                            <span className={`text-[9px] px-1.5 py-0.2 rounded font-bold border ${
+                              trip.batta_included === 'INCLUDED' ? 'bg-blue-50 text-[#0043DC] border-blue-200' : 'bg-slate-100 text-slate-600 border-slate-200'
+                            }`}>
+                              Batta: {trip.batta_included === 'INCLUDED' ? 'INC' : 'EXC'}
+                            </span>
+                          </div>
+                          <div className="text-[10px] text-[#0043DC] font-semibold">
+                            Extra: ₹{trip.extra_km_rate || 14}/km
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Driver & Dispatch */}
+                      <td className="py-3.5 px-4 align-top" onClick={(e) => e.stopPropagation()}>
+                        {trip.status === 'REQUESTED' || (trip.trip_requests && trip.trip_requests.some((r) => r.status === 'PENDING')) ? (
+                          <div className="p-2 rounded-xl bg-amber-50 border border-amber-300 space-y-1.5">
+                            <div className="flex items-center space-x-1.5 text-amber-900 text-[10px] font-black uppercase">
+                              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                              <span>Driver Requested</span>
                             </div>
-                            <div className="flex items-center space-x-1.5">
+                            <div className="text-[11px] font-bold text-slate-900 truncate">
+                              {reqDriver?.name || 'Driver ' + reqDriverId.substring(0, 8)}
+                            </div>
+                            <div className="flex items-center space-x-1.5 pt-0.5">
                               <button
                                 onClick={() => reqDriverId && handleApproveRequest(trip.id, reqDriverId)}
                                 disabled={isProcessing}
-                                className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs shadow-sm flex items-center space-x-1"
+                                className="px-2 py-0.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-[10px] shadow-sm flex items-center space-x-1"
                               >
-                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <CheckCircle2 className="w-3 h-3" />
                                 <span>Approve</span>
                               </button>
                               <button
                                 onClick={() => handleRejectRequest(trip.id, reqDriverId)}
                                 disabled={isProcessing}
-                                className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-rose-50 text-rose-700 font-bold text-xs border border-rose-200"
+                                className="px-1.5 py-0.5 rounded-lg bg-white hover:bg-rose-50 text-rose-700 font-bold text-[10px] border border-rose-200"
                               >
                                 Reject
                               </button>
                             </div>
                           </div>
+                        ) : trip.assigned_driver_id ? (
+                          <div
+                            onClick={() => onViewDriverDetails?.(trip.assigned_driver_id!)}
+                            className="p-1.5 rounded-xl bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 transition cursor-pointer space-y-0.5"
+                            title="Click to view full driver details"
+                          >
+                            <div className="flex items-center space-x-1 text-emerald-800 font-bold text-xs truncate">
+                              <UserCheck className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                              <span className="truncate">{trip.driver?.name || 'Driver ' + trip.assigned_driver_id.substring(0, 8)}</span>
+                            </div>
+                            <div className="text-[10px] text-emerald-700 font-mono">
+                              {trip.driver?.mobile || 'Assigned'}
+                            </div>
+                            <div className="text-[9px] text-[#0043DC] font-bold hover:underline">
+                              View Profile →
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-1.5">
+                            <span className="inline-flex items-center space-x-1 text-[11px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200">
+                              <Send className="w-3 h-3 text-[#0043DC]" />
+                              <span>Broadcasted</span>
+                            </span>
+                            <div>
+                              <button
+                                onClick={() => {
+                                  setSelectedTripForAssign(trip);
+                                  setSelectedDriverId('');
+                                }}
+                                className="px-2.5 py-1 rounded-lg bg-[#0043DC] hover:bg-[#0036b3] text-white font-bold text-[11px] shadow-sm transition"
+                              >
+                                Assign Driver
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Status */}
+                      <td className="py-3.5 px-4 align-top">
+                        <span className={`inline-block text-[11px] font-extrabold px-2.5 py-0.5 rounded-full border whitespace-nowrap ${getStatusBadge(trip.status)}`}>
+                          {trip.status}
+                        </span>
+                      </td>
+
+                      {/* Actions */}
+                      <td className="py-3.5 px-4 align-top text-right" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-end space-x-1">
+                          {/* View Details */}
+                          <button
+                            onClick={() => setSelectedTripForDetails(trip)}
+                            className="p-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 transition border border-slate-200"
+                            title="View Full Trip Details"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
+
+                          {/* Edit Trip */}
+                          <button
+                            onClick={() => setTripToEdit(trip)}
+                            className="p-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-[#0043DC] transition border border-blue-200"
+                            title="Edit Trip Details"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+
+                          {/* Mark Done (if started) */}
+                          {trip.status === 'STARTED' && (
+                            <button
+                              onClick={() => onUpdateTripStatus(trip.id, 'COMPLETED')}
+                              className="px-2 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] transition shadow-sm"
+                              title="Mark Completed"
+                            >
+                              Done
+                            </button>
+                          )}
+
+                          {/* Cancel Trip (if active) */}
+                          {trip.status !== 'COMPLETED' && trip.status !== 'CANCELLED' && (
+                            <button
+                              onClick={() => setTripToCancel(trip)}
+                              className="p-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 transition border border-rose-200"
+                              title="Cancel Trip"
+                            >
+                              <XCircle className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+
+                          {/* Delete Trip */}
+                          <button
+                            onClick={() => setTripToDelete(trip)}
+                            className="p-1.5 rounded-xl bg-slate-50 hover:bg-rose-50 text-slate-400 hover:text-rose-600 transition border border-slate-200 hover:border-rose-200"
+                            title="Delete Trip Record"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
-                      );
-                    })()
-                  ) : trip.assigned_driver_id ? (
-                    <div
-                      onClick={() => onViewDriverDetails?.(trip.assigned_driver_id!)}
-                      className="flex items-center space-x-2 text-emerald-700 bg-emerald-50 p-2 rounded-xl border border-emerald-200 hover:bg-emerald-100/70 hover:border-emerald-300 transition cursor-pointer"
-                      title="Click to view full driver details"
-                    >
-                      <UserCheck className="w-4 h-4 flex-shrink-0 text-emerald-600" />
-                      <span className="font-bold truncate flex-1">
-                        Assigned: {trip.driver?.name || 'Driver ' + trip.assigned_driver_id.substring(0, 8)}
-                      </span>
-                      <span className="text-[10px] bg-white px-2 py-0.5 rounded font-bold text-emerald-700 border border-emerald-200">
-                        View Profile →
-                      </span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center space-x-2 text-[#0043DC] bg-blue-50 p-2 rounded-xl border border-blue-200">
-                      <Send className="w-4 h-4 flex-shrink-0" />
-                      <span className="font-bold">Broadcast to All Online Drivers</span>
-                    </div>
-                  )}
-                </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        
+        {/* Mobile-First Card View (Visible only on mobile screens < 768px) */}
+        <div className="block md:hidden divide-y divide-slate-100">
+          {filteredTrips.length === 0 ? (
+            <div className="py-12 px-4 text-center text-slate-500">
+              <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mx-auto mb-2">
+                <Car className="w-6 h-6" />
               </div>
-
-              {/* Action Buttons Row */}
-              <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
-                {/* View Details Button */}
-                <button
-                  onClick={() => setSelectedTripForDetails(trip)}
-                  className="flex-1 flex items-center justify-center space-x-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs transition border border-slate-200"
-                >
-                  <Eye className="w-3.5 h-3.5 text-slate-500" />
-                  <span>View Details</span>
-                </button>
-
-                {/* Approve Driver Request (if requested) */}
-                {trip.status === 'REQUESTED' && (
-                  <button
-                    onClick={() => {
-                      const req = (trip.trip_requests || []).find((r) => r.status === 'PENDING') || trip.trip_requests?.[0];
-                      const reqDriverId = req?.driver_id || '';
-                      if (reqDriverId) {
-                        handleApproveRequest(trip.id, reqDriverId);
-                      } else {
-                        setSelectedTripForAssign(trip);
-                        setSelectedDriverId('');
-                      }
-                    }}
-                    className="flex-1 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs transition shadow-sm flex items-center justify-center space-x-1"
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Approve & Assign</span>
-                  </button>
-                )}
-
-                {/* Assign Driver (if unassigned & available) */}
-                {!trip.assigned_driver_id && trip.status === 'AVAILABLE' && (
-                  <button
-                    onClick={() => {
-                      setSelectedTripForAssign(trip);
-                      setSelectedDriverId('');
-                    }}
-                    className="flex-1 px-3 py-2 rounded-xl bg-[#0043DC] hover:bg-[#0036b3] text-white font-bold text-xs transition shadow-sm text-center"
-                  >
-                    Assign
-                  </button>
-                )}
-
-                {/* Cancel Button (if active) */}
-                {trip.status !== 'COMPLETED' && trip.status !== 'CANCELLED' && (
-                  <button
-                    onClick={() => setTripToCancel(trip)}
-                    className="px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs transition border border-rose-200"
-                  >
-                    Cancel
-                  </button>
-                )}
-
-                {/* Mark Completed (if started) */}
-                {trip.status === 'STARTED' && (
-                  <button
-                    onClick={() => onUpdateTripStatus(trip.id, 'COMPLETED')}
-                    className="flex-1 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition shadow-sm text-center"
-                  >
-                    Mark Done
-                  </button>
-                )}
-
-                {/* Delete Button */}
-                <button
-                  onClick={() => setTripToDelete(trip)}
-                  className="p-2 rounded-xl bg-slate-50 hover:bg-rose-50 text-slate-400 hover:text-rose-600 transition border border-slate-200 hover:border-rose-200"
-                  title="Delete Trip Record"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
+              <p className="font-bold text-slate-800 text-sm">No {selectedFilter === 'ALL' ? '' : selectedFilter.toLowerCase()} trips</p>
+              <p className="text-xs text-slate-400 mt-1">Dispatched trips will appear here in real-time.</p>
+              <button
+                onClick={onOpenCreateModal}
+                className="mt-3 px-4 py-2 rounded-xl bg-[#0043DC] text-white font-bold text-xs shadow-sm transition"
+              >
+                + Dispatch New Trip
+              </button>
             </div>
-          );
-        })}
+          ) : (
+            filteredTrips.map((trip) => {
+              const req = (trip.trip_requests || []).find((r) => r.status === 'PENDING') || trip.trip_requests?.[0];
+              const reqDriver = req?.driver || (req?.driver_id ? drivers.find((d) => d.id === req.driver_id) : null);
+              const reqDriverId = req?.driver_id || reqDriver?.id || '';
+
+              return (
+                <div
+                  key={trip.id}
+                  onClick={() => setSelectedTripForDetails(trip)}
+                  className="p-4 space-y-3 hover:bg-blue-50/30 transition cursor-pointer active:bg-slate-50"
+                >
+                  {/* Card Header: Trip Number, Vehicle, Status */}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center space-x-2">
+                      <span className="font-mono font-black text-slate-900 text-sm">
+                        {trip.trip_number}
+                      </span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                        {trip.vehicle_type}
+                      </span>
+                    </div>
+                    <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border ${getStatusBadge(trip.status)}`}>
+                      {trip.status}
+                    </span>
+                  </div>
+
+                  {/* Date & Trip Type */}
+                  <div className="flex items-center justify-between text-[11px] text-slate-500">
+                    <div className="flex items-center space-x-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                      <span>{trip.pickup_date || 'Today'} • {trip.pickup_time || 'Now'}</span>
+                    </div>
+                    <span className="font-semibold text-slate-600 bg-slate-50 px-2 py-0.5 rounded">
+                      {trip.trip_type || 'One-way'}
+                    </span>
+                  </div>
+
+                  {/* Route: Pickup & Drop */}
+                  <div className="space-y-1.5 bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-xs">
+                    <div className="flex items-start space-x-2">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 mt-1 shrink-0" />
+                      <span className="text-slate-800 font-medium line-clamp-1">{trip.pickup_location}</span>
+                    </div>
+                    <div className="flex items-start space-x-2">
+                      <span className="w-2 h-2 rounded-full bg-rose-500 mt-1 shrink-0" />
+                      <span className="text-slate-800 font-medium line-clamp-1">{trip.drop_location}</span>
+                    </div>
+                    <div className="pt-1 flex items-center justify-between text-[10px] text-slate-400 border-t border-slate-200/60 font-semibold">
+                      <span>Distance: <strong className="text-slate-700">{trip.distance}</strong></span>
+                      <span>Limit: <strong className="text-slate-700">{trip.allowed_km || 50} km</strong></span>
+                    </div>
+                  </div>
+
+                  {/* Customer & Fare */}
+                  <div className="flex items-center justify-between text-xs pt-0.5">
+                    <div>
+                      <div className="font-bold text-slate-900">{trip.customer_name}</div>
+                      <a
+                        href={`tel:${trip.customer_phone}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-slate-500 text-[11px] font-mono hover:text-[#0043DC] flex items-center space-x-1"
+                      >
+                        <Phone className="w-3 h-3 text-slate-400" />
+                        <span>{trip.customer_phone}</span>
+                      </a>
+                    </div>
+
+                    <div className="text-right">
+                      <div className="font-black text-slate-900 text-base">₹{trip.fare}</div>
+                      <div className="text-[10px] text-emerald-700 font-bold">
+                        Collect: ₹{trip.cash_to_collect || trip.fare}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Inclusions pills */}
+                  <div className="flex flex-wrap gap-1">
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold border ${
+                      trip.toll_included === 'INCLUDED' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200'
+                    }`}>
+                      Toll: {trip.toll_included === 'INCLUDED' ? 'INC' : 'EXC'}
+                    </span>
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold border ${
+                      trip.permit_included === 'INCLUDED' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'
+                    }`}>
+                      Permit: {trip.permit_included === 'INCLUDED' ? 'INC' : 'EXC'}
+                    </span>
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold border ${
+                      trip.batta_included === 'INCLUDED' ? 'bg-blue-50 text-[#0043DC] border-blue-200' : 'bg-slate-100 text-slate-600 border-slate-200'
+                    }`}>
+                      Batta: {trip.batta_included === 'INCLUDED' ? 'INC' : 'EXC'}
+                    </span>
+                  </div>
+
+                  {/* Driver Assignment / Action Bar */}
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2" onClick={(e) => e.stopPropagation()}>
+                    {trip.status === 'REQUESTED' || (trip.trip_requests && trip.trip_requests.some((r) => r.status === 'PENDING')) ? (
+                      <div className="flex items-center justify-between w-full bg-amber-50 border border-amber-200 p-2 rounded-xl">
+                        <span className="text-[11px] font-bold text-amber-900 truncate">
+                          Req: {reqDriver?.name || 'Driver'}
+                        </span>
+                        <div className="flex items-center space-x-1.5">
+                          <button
+                            onClick={() => handleApproveRequest(trip.id, reqDriverId)}
+                            className="px-2.5 py-1 bg-emerald-600 text-white font-bold text-[10px] rounded-lg shadow-sm"
+                          >
+                            Approve
+                          </button>
+                          <button
+                            onClick={() => handleRejectRequest(trip.id, reqDriverId)}
+                            className="px-2.5 py-1 bg-rose-600 text-white font-bold text-[10px] rounded-lg shadow-sm"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      </div>
+                    ) : trip.driver ? (
+                      <div className="flex items-center justify-between w-full">
+                        <div className="flex items-center space-x-2">
+                          <img
+                            src={trip.driver.profile_image || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=120&q=80'}
+                            alt={trip.driver.name}
+                            className="w-7 h-7 rounded-full object-cover border border-slate-200"
+                          />
+                          <span className="text-xs font-bold text-slate-800">{trip.driver.name}</span>
+                        </div>
+                        <a
+                          href={`tel:${trip.driver.mobile}`}
+                          className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold text-[10px] flex items-center space-x-1"
+                        >
+                          <Phone className="w-3 h-3" />
+                          <span>Call</span>
+                        </a>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between w-full">
+                        <button
+                          onClick={() => setSelectedTripForAssign(trip)}
+                          className="px-3 py-1.5 rounded-lg bg-blue-50 text-[#0043DC] hover:bg-blue-100 font-bold text-[11px] border border-blue-200 flex items-center space-x-1"
+                        >
+                          <UserPlus className="w-3.5 h-3.5" />
+                          <span>Assign Driver</span>
+                        </button>
+                        <div className="flex items-center space-x-1">
+                          <button
+                            onClick={() => setTripToEdit(trip)}
+                            className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500"
+                            title="Edit"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => setTripToCancel(trip)}
+                            className="p-1.5 rounded-lg hover:bg-rose-50 text-rose-500"
+                            title="Cancel"
+                          >
+                            <XCircle className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Table Footer info */}
+        <div className="p-3.5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-500">
+          <div>
+            Showing <strong className="text-slate-800">{filteredTrips.length}</strong> of{' '}
+            <strong className="text-slate-800">{trips.length}</strong> total trips
+          </div>
+          <div className="text-[11px] text-slate-400">
+            Tip: Click any row to view full trip itinerary and driver settlement breakdown
+          </div>
+        </div>
       </div>
 
       {/* ─────────────────────────────────────────────────────────────
@@ -548,6 +795,19 @@ export const TripsManager: React.FC<TripsManagerProps> = ({
               </div>
 
               <div className="flex items-center space-x-2">
+                {/* Edit in modal header */}
+                <button
+                  onClick={() => {
+                    const toEdit = selectedTripForDetails;
+                    setSelectedTripForDetails(null);
+                    setTripToEdit(toEdit);
+                  }}
+                  className="p-2 rounded-xl bg-white/10 hover:bg-[#0043DC] text-slate-300 hover:text-white transition"
+                  title="Edit Trip"
+                >
+                  <Pencil className="w-4 h-4" />
+                </button>
+
                 {/* Delete in modal header */}
                 <button
                   onClick={() => setTripToDelete(selectedTripForDetails)}
@@ -817,6 +1077,19 @@ export const TripsManager: React.FC<TripsManagerProps> = ({
             {/* Modal Bottom Action Bar */}
             <div className="p-4 sm:p-5 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center space-x-2">
+                {/* Edit button */}
+                <button
+                  onClick={() => {
+                    const toEdit = selectedTripForDetails;
+                    setSelectedTripForDetails(null);
+                    setTripToEdit(toEdit);
+                  }}
+                  className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-[#0043DC] text-xs font-bold transition border border-blue-200"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                  <span>Edit Trip</span>
+                </button>
+
                 {/* Delete button */}
                 <button
                   onClick={() => setTripToDelete(selectedTripForDetails)}
@@ -1015,6 +1288,26 @@ export const TripsManager: React.FC<TripsManagerProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          5. EDIT TRIP MODAL
+      ───────────────────────────────────────────────────────────── */}
+      {tripToEdit && (
+        <EditTripModal
+          trip={tripToEdit}
+          isOpen={!!tripToEdit}
+          onClose={() => setTripToEdit(null)}
+          onSave={async (tripId, updates) => {
+            if (onUpdateTripDetails) {
+              await onUpdateTripDetails(tripId, updates);
+            }
+            if (selectedTripForDetails && selectedTripForDetails.id === tripId) {
+              setSelectedTripForDetails((prev) => (prev ? { ...prev, ...updates } : null));
+            }
+            setTripToEdit(null);
+          }}
+        />
       )}
     </div>
   );

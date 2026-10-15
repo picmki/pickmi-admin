@@ -24,12 +24,14 @@ interface CustomersManagerProps {
   trips: Trip[];
   onDispatchForCustomer: (name: string, phone: string) => void;
   onViewTripDetails?: (tripId: string) => void;
+  onViewCustomerDetails?: (cust: any) => void;
 }
 
 export const CustomersManager: React.FC<CustomersManagerProps> = ({
   trips,
   onDispatchForCustomer,
   onViewTripDetails,
+  onViewCustomerDetails,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [tierFilter, setTierFilter] = useState<'all' | 'vip' | 'repeat' | 'recent'>('all');
@@ -131,7 +133,7 @@ export const CustomersManager: React.FC<CustomersManagerProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center space-x-3">
+
           <button
             onClick={() => setShowAddCustomerModal(true)}
             className="px-4 py-2.5 bg-[#0043DC] hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-[#0043DC]/20 transition-all flex items-center space-x-2"
@@ -139,7 +141,6 @@ export const CustomersManager: React.FC<CustomersManagerProps> = ({
             <Plus className="w-4 h-4" />
             <span>New Customer / Quick Dispatch</span>
           </button>
-        </div>
       </div>
 
       {/* KPI Cards */}
@@ -202,7 +203,7 @@ export const CustomersManager: React.FC<CustomersManagerProps> = ({
           />
         </div>
 
-        <div className="flex items-center space-x-1.5 overflow-x-auto">
+        <div className="flex items-center space-x-1.5 overflow-x-auto no-scrollbar">
           {[
             { id: 'all', label: 'All Customers' },
             { id: 'vip', label: 'VIP Spenders (₹2k+)' },
@@ -226,7 +227,7 @@ export const CustomersManager: React.FC<CustomersManagerProps> = ({
 
       {/* Customer Records Table */}
       <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50 border-b border-slate-200/80 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
               <tr>
@@ -318,10 +319,29 @@ export const CustomersManager: React.FC<CustomersManagerProps> = ({
                       <td className="py-3.5 px-4 text-right">
                         <div className="flex items-center justify-end space-x-2">
                           <button
-                            onClick={() => setSelectedCustomer(cust)}
+                            onClick={() => {
+                              if (onViewCustomerDetails) {
+                                onViewCustomerDetails({
+                                  id: (cust as any).id || 'usr_' + cust.phone.replace(/\D/g, ''),
+                                  name: cust.name,
+                                  phone: cust.phone,
+                                  email: (cust as any).email || '',
+                                  city: 'Bengaluru',
+                                  gender: 'Male',
+                                  totalSpend: cust.totalSpend,
+                                  totalTrips: cust.totalTrips,
+                                  completedTrips: cust.completedTrips,
+                                  cancelledTrips: cust.cancelledTrips,
+                                  trips: trips.filter(t => t.customer_phone?.trim() === cust.phone.trim()),
+                                  lastTripDate: cust.lastTripDate
+                                });
+                              } else {
+                                setSelectedCustomer(cust);
+                              }
+                            }}
                             className="px-2.5 py-1 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-100 text-xs font-bold transition"
                           >
-                            View Trips
+                            View Details
                           </button>
                           <button
                             onClick={() => onDispatchForCustomer(cust.name, cust.phone)}
@@ -337,6 +357,85 @@ export const CustomersManager: React.FC<CustomersManagerProps> = ({
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Mobile Customer Cards View (Screens < 768px) */}
+        <div className="block md:hidden divide-y divide-slate-100">
+          {filteredCustomers.length === 0 ? (
+            <div className="py-10 px-4 text-center text-slate-400">
+              No customers match your search filters.
+            </div>
+          ) : (
+            filteredCustomers.map((cust) => {
+              const isVip = cust.totalSpend >= 2000;
+              return (
+                <div key={cust.phone} className="p-4 space-y-3 hover:bg-slate-50/50 transition">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-10 h-10 rounded-xl bg-blue-100 text-[#0043DC] flex items-center justify-center font-bold text-base shrink-0">
+                        {cust.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <span className="font-bold text-slate-900 text-sm">{cust.name}</span>
+                          {isVip && (
+                            <span className="px-1.5 py-0.5 bg-amber-100 text-amber-800 text-[9px] font-extrabold rounded uppercase">
+                              VIP
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-400">
+                          {cust.totalTrips > 1 ? `${cust.totalTrips} bookings recorded` : '1 booking recorded'}
+                        </div>
+                      </div>
+                    </div>
+
+                    <a
+                      href={`tel:${cust.phone}`}
+                      className="p-2 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold shrink-0"
+                      title="Call Customer"
+                    >
+                      <Phone className="w-4 h-4" />
+                    </a>
+                  </div>
+
+                  <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-xs space-y-1">
+                    <div className="flex items-center justify-between text-slate-600">
+                      <span>Phone: <strong className="font-mono text-slate-800">{cust.phone}</strong></span>
+                      <span className="text-[10px] text-slate-400 font-semibold">{cust.preferredVehicle}</span>
+                    </div>
+                    {cust.lastLocation && (
+                      <div className="text-[11px] text-slate-500 truncate pt-0.5">
+                        Route: {cust.lastLocation}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1">
+                    <div>
+                      <span className="text-[10px] text-slate-400 font-bold uppercase block">Lifetime Spend</span>
+                      <span className="text-sm font-black text-slate-900">₹{cust.totalSpend.toLocaleString('en-IN')}</span>
+                    </div>
+
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={() => onViewCustomerDetails?.(cust)}
+                        className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition"
+                      >
+                        Profile
+                      </button>
+                      <button
+                        onClick={() => onDispatchForCustomer(cust.name, cust.phone)}
+                        className="px-3 py-1.5 rounded-xl bg-[#0043DC] hover:bg-blue-600 text-white text-xs font-bold transition shadow-xs"
+                      >
+                        Dispatch
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
         </div>
       </div>
 

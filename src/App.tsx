@@ -11,9 +11,12 @@ import { SecurityDepositTracker } from './components/SecurityDepositTracker';
 import { CreateTripPage } from './components/CreateTripPage';
 import { SchemaSetupModal } from './components/SchemaSetupModal';
 import { DriverDetailsPage } from './components/DriverDetailsPage';
+import { CustomerDetailsPage } from './components/CustomerDetailsPage';
+import type { CustomerDetailRecord } from './components/WebsiteManager';
 import { CustomersManager } from './components/CustomersManager';
 import { BillingManager } from './components/BillingManager';
 import { DriverWalletsManager } from './components/DriverWalletsManager';
+import { WebsiteManager } from './components/WebsiteManager';
 import {
   supabase,
   checkDatabaseConnection,
@@ -22,25 +25,62 @@ import {
   getPendingDocuments,
   createTrip,
   updateTripStatus,
+  updateTripDetails,
   deleteTrip,
   updateTripSettlement,
   createDriver,
   updateDriverOnlineStatus,
   updateDriverDepositStatus,
+  updateDriverAccountStatus,
   verifyDocument,
   verifyAllDriverDocuments,
   approveDriverTripRequest,
   rejectDriverTripRequest,
+  getWebsiteBookings,
+  getWebsiteUsers,
+  getWebsiteDriverApplications,
+  getWebsiteContactSubmissions,
+  approveWebsiteDriverApplication,
+  updateWebsiteContactStatus,
+  updateCustomerProfile,
+  deleteCustomerProfile,
 } from './lib/supabase';
-import type { Driver, DriverDocument, Trip, TripStatus, NavTab } from './types';
+import type { Driver, DriverDocument, Trip, TripStatus, NavTab, WebsiteBooking, WebsiteUser, WebsiteDriverApplication, WebsiteContactSubmission } from './types';
 import { AlertCircle, Menu, LayoutDashboard, Navigation, MapPin, Users } from 'lucide-react';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<NavTab>('overview');
-  const [drivers, setDrivers] = useState<Driver[]>([]);
-  const [trips, setTrips] = useState<Trip[]>([]);
-  const [documents, setDocuments] = useState<DriverDocument[]>([]);
+  const [drivers, setDrivers] = useState<Driver[]>(() => {
+    try {
+      const cached = localStorage.getItem('pickmi_cached_drivers');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [trips, setTrips] = useState<Trip[]>(() => {
+    try {
+      const cached = localStorage.getItem('pickmi_cached_trips');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [documents, setDocuments] = useState<DriverDocument[]>(() => {
+    try {
+      const cached = localStorage.getItem('pickmi_cached_documents');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [websiteBookings, setWebsiteBookings] = useState<WebsiteBooking[]>([]);
+  const [websiteUsers, setWebsiteUsers] = useState<WebsiteUser[]>([]);
+  const [driverApplications, setDriverApplications] = useState<WebsiteDriverApplication[]>([]);
+  const [contactSubmissions, setContactSubmissions] = useState<WebsiteContactSubmission[]>([]);
   const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerDetailRecord | null>(null);
+  const [customerBackTab, setCustomerBackTab] = useState<NavTab>('website-users');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(() => localStorage.getItem('pickmi_admin_authenticated') === 'true');
 
@@ -57,43 +97,76 @@ export default function App() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isSetupModalOpen, setIsSetupModalOpen] = useState(false);
 
-  // Load database status and entities
+  // Load database status and entities (Fast, parallel, non-blocking)
   const loadDatabase = useCallback(async () => {
     setIsSyncing(true);
-    try {
-      const conn = await checkDatabaseConnection();
-      setSupabaseStatus(conn);
 
-      if (conn.tablesExist) {
-        const [driversData, tripsData, docsData] = await Promise.all([
-          getDrivers(),
-          getTrips(),
-          getPendingDocuments(),
-        ]);
-        setDrivers(driversData);
-        setTrips(tripsData);
-        setDocuments(docsData);
-      } else {
-        // Fallback to rich mock data if tables are not yet migrated
-        const { INITIAL_MOCK_DRIVERS, INITIAL_MOCK_TRIPS, INITIAL_MOCK_DOCUMENTS } = await import(
-          './mockData'
-        );
+    // 1. Check connection concurrently
+    checkDatabaseConnection().then(setSupabaseStatus).catch(() => {});
+
+    // 2. Load Trips concurrently (resolves in ~200-300ms)
+    const tripsPromise = getTrips()
+      .then((liveTrips) => {
+        if (liveTrips) {
+          setTrips(liveTrips);
+          try {
+            localStorage.setItem('pickmi_cached_trips', JSON.stringify(liveTrips));
+          } catch {}
+        }
+        return liveTrips;
+      })
+      .catch((err) => {
+        console.error('getTrips error:', err);
+        return null;
+      });
+
+    // 3. Load Drivers concurrently (resolves fast without heavy documents join)
+    const driversPromise = getDrivers()
+      .then((liveDrivers) => {
+        if (liveDrivers && liveDrivers.length > 0) {
+          setDrivers(liveDrivers);
+          try {
+            localStorage.setItem('pickmi_cached_drivers', JSON.stringify(liveDrivers));
+          } catch {}
+        }
+        return liveDrivers;
+      })
+      .catch((err) => {
+        console.error('getDrivers error:', err);
+        return null;
+      });
+
+    // 4. Load Website data
+    getWebsiteBookings().then(setWebsiteBookings).catch(() => {});
+    getWebsiteUsers().then(setWebsiteUsers).catch(() => {});
+    getWebsiteDriverApplications().then(setDriverApplications).catch(() => {});
+    getWebsiteContactSubmissions().then(setContactSubmissions).catch(() => {});
+
+    // 5. Load Pending Documents in background
+    const docsPromise = getPendingDocuments()
+      .then((liveDocs) => {
+        if (liveDocs) {
+          setDocuments(liveDocs);
+          try {
+            localStorage.setItem('pickmi_cached_documents', JSON.stringify(liveDocs));
+          } catch {}
+        }
+        return liveDocs;
+      })
+      .catch(() => null);
+
+    // Concurrently handle mock fallback only if DB completely empty/offline
+    Promise.allSettled([tripsPromise, driversPromise, docsPromise]).then(async ([tRes, dRes]) => {
+      const liveDriversLoaded = dRes.status === 'fulfilled' && dRes.value && dRes.value.length > 0;
+      if (!liveDriversLoaded && drivers.length === 0) {
+        const { INITIAL_MOCK_DRIVERS, INITIAL_MOCK_TRIPS, INITIAL_MOCK_DOCUMENTS } = await import('./mockData');
         setDrivers(INITIAL_MOCK_DRIVERS);
         setTrips(INITIAL_MOCK_TRIPS);
         setDocuments(INITIAL_MOCK_DOCUMENTS);
       }
-    } catch (err: any) {
-      console.warn('Error syncing database, using mock fallback:', err);
-      const { INITIAL_MOCK_DRIVERS, INITIAL_MOCK_TRIPS, INITIAL_MOCK_DOCUMENTS } = await import(
-        './mockData'
-      );
-      setDrivers(INITIAL_MOCK_DRIVERS);
-      setTrips(INITIAL_MOCK_TRIPS);
-      setDocuments(INITIAL_MOCK_DOCUMENTS);
-    } finally {
       setIsSyncing(false);
-    }
-  }, []);
+    });
+  }, [drivers.length]);
 
   useEffect(() => {
     loadDatabase();
@@ -109,6 +182,15 @@ export default function App() {
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'driver_documents' }, () => {
         getPendingDocuments().then(setDocuments).catch(() => {});
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'website_bookings' }, () => {
+        getWebsiteBookings().then(setWebsiteBookings).catch(() => {});
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'website_driver_applications' }, () => {
+        getWebsiteDriverApplications().then(setDriverApplications).catch(() => {});
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'website_contact_submissions' }, () => {
+        getWebsiteContactSubmissions().then(setContactSubmissions).catch(() => {});
       })
       .subscribe();
 
@@ -171,6 +253,32 @@ export default function App() {
               status: 'AVAILABLE',
               assigned_driver_id: null,
               trip_requests: (t.trip_requests || []).filter((r) => r.driver_id !== driverId),
+            }
+          : t
+      )
+    );
+  };
+
+  
+  const handleUpdateTripDetails = async (tripId: string, updates: Partial<Trip>) => {
+    try {
+      const updated = await updateTripDetails(tripId, updates);
+      if (updated) {
+        setTrips((prev) =>
+          prev.map((t) => (t.id === tripId ? { ...t, ...updated } : t))
+        );
+        return;
+      }
+    } catch (e: any) {
+      console.warn("Could not update in Supabase, updating locally:", e);
+    }
+    setTrips((prev) =>
+      prev.map((t) =>
+        t.id === tripId
+          ? {
+              ...t,
+              ...updates,
+              updated_at: new Date().toISOString(),
             }
           : t
       )
@@ -267,6 +375,21 @@ export default function App() {
     setDrivers((prev) => [created, ...prev]);
   };
 
+  const handleUpdateDriverStatus = async (driverId: string, status: 'active' | 'inactive' | 'suspended') => {
+    await updateDriverAccountStatus(driverId, status);
+    setDrivers((prev) =>
+      prev.map((d) =>
+        d.id === driverId
+          ? {
+              ...d,
+              status,
+              online_status: status !== 'active' ? 'OFFLINE' : d.online_status,
+            }
+          : d
+      )
+    );
+  };
+
   const handleToggleOnline = async (driverId: string, currentStatus: string) => {
     const nextStatus = currentStatus === 'ONLINE' ? 'OFFLINE' : 'ONLINE';
     await updateDriverOnlineStatus(driverId, nextStatus);
@@ -300,13 +423,34 @@ export default function App() {
     );
   };
 
-  const handleVerifyDocument = async (docId: string, status: 'Verified' | 'Rejected', reason?: string) => {
-    await verifyDocument(docId, status, reason);
-    setDocuments((prev) =>
-      prev.map((doc) =>
-        doc.id === docId ? { ...doc, verification_status: status, rejection_reason: reason || null } : doc
-      )
-    );
+  const handleVerifyDocument = async (
+    docId: string,
+    status: 'Verified' | 'Rejected',
+    reason?: string,
+    fallbackDriverId?: string,
+    fallbackDocType?: string
+  ) => {
+    try {
+      const res = await verifyDocument(docId, status, reason, fallbackDriverId, fallbackDocType);
+      const drvId = res?.driverId || fallbackDriverId;
+      setDocuments((prev) =>
+        prev.map((doc) => {
+          if (
+            doc.id === docId ||
+            (fallbackDriverId && fallbackDocType && doc.driver_id === fallbackDriverId && doc.document_type === fallbackDocType)
+          ) {
+            return { ...doc, verification_status: status, rejection_reason: reason || null };
+          }
+          return doc;
+        })
+      );
+      if (drvId) {
+        getDrivers().then(setDrivers).catch(() => {});
+      }
+    } catch (err) {
+      console.error('handleVerifyDocument error:', err);
+      throw err;
+    }
   };
 
   const pendingDocCount = documents.filter((d) => d.verification_status === 'Pending').length;
@@ -341,7 +485,7 @@ export default function App() {
       />
 
       {/* Main Content Area offset by Sidebar width (w-64 = 16rem = 256px) */}
-      <div className="ml-0 md:ml-64 flex-1 flex flex-col min-h-screen pb-16 md:pb-0">
+      <div className="ml-0 md:ml-64 flex-1 flex flex-col min-h-screen pb-24 md:pb-6">
         <Header
           supabaseStatus={supabaseStatus}
           isSyncing={isSyncing}
@@ -374,7 +518,7 @@ export default function App() {
         )}
 
         {/* Main Routed Page Content */}
-        <main className="p-4 sm:p-6 md:p-8 flex-1">
+        <main className="p-3 sm:p-6 md:p-8 flex-1">
           {currentTab === 'overview' && (
             <DashboardOverview
               drivers={drivers}
@@ -398,6 +542,8 @@ export default function App() {
             <LiveDriversMap
               drivers={drivers}
               trips={trips}
+              onRefresh={loadDatabase}
+              isRefreshing={isSyncing}
               onAssignTrip={handleAssignDriver}
               onViewDriverDetails={(driverId) => {
                 setSelectedDriverId(driverId);
@@ -412,6 +558,7 @@ export default function App() {
               drivers={drivers}
               onOpenCreateModal={() => setCurrentTab('create-trip')}
               onUpdateTripStatus={handleUpdateTripStatus}
+              onUpdateTripDetails={handleUpdateTripDetails}
               onAssignDriver={handleAssignDriver}
               onApproveDriverRequest={handleApproveDriverRequest}
               onRejectDriverRequest={handleRejectDriverRequest}
@@ -451,6 +598,7 @@ export default function App() {
               drivers={drivers}
               onToggleOnline={handleToggleOnline}
               onToggleDeposit={handleToggleDeposit}
+              onUpdateDriverStatus={handleUpdateDriverStatus}
               onInspectDocuments={() => setCurrentTab('documents')}
               onAddDriver={handleAddDriver}
               onViewDriverDetails={(driverId) => {
@@ -467,6 +615,7 @@ export default function App() {
               onBack={() => setCurrentTab('drivers')}
               onToggleOnline={handleToggleOnline}
               onToggleDeposit={handleToggleDeposit}
+              onUpdateDriverStatus={handleUpdateDriverStatus}
               onVerifyDocument={handleVerifyDocument}
               onVerifyAllDocuments={handleVerifyAllDocuments}
               onAssignTrip={(driverId) => {
@@ -475,9 +624,72 @@ export default function App() {
             />
           )}
 
+          {currentTab === 'customer-details' && selectedCustomer && (
+            <CustomerDetailsPage
+              customer={selectedCustomer}
+              trips={trips}
+              drivers={drivers}
+              onBack={() => setCurrentTab(customerBackTab)}
+              onAssignDriver={handleAssignDriver}
+              onUpdateCustomer={async (cust) => {
+                await updateCustomerProfile(cust);
+                setSelectedCustomer((prev) =>
+                  prev ? { ...prev, ...cust, phone: cust.mobile || prev.phone } : null
+                );
+                setWebsiteUsers((prev) => {
+                  const exists = prev.some((u) => u.mobile === cust.mobile);
+                  if (exists) {
+                    return prev.map((u) => (u.mobile === cust.mobile ? { ...u, ...cust } : u));
+                  }
+                  return [{ id: cust.id || 'usr_' + Date.now(), ...cust, created_at: new Date().toISOString() }, ...prev];
+                });
+                setTrips((prev) =>
+                  prev.map((t) => (t.customer_phone === cust.mobile ? { ...t, customer_name: cust.name } : t))
+                );
+              }}
+              onDeleteCustomer={async (phone, id) => {
+                await deleteCustomerProfile(phone, id);
+                setWebsiteUsers((prev) => prev.filter((u) => u.mobile !== phone && u.id !== id));
+              }}
+              onDispatchForCustomer={(name, phone) => {
+                handleCreateTrip({
+                  customer_name: name,
+                  customer_phone: phone,
+                  pickup_location: "Koramangala 5th Block, Bengaluru",
+                  pickup_latitude: 12.9352,
+                  pickup_longitude: 77.6245,
+                  drop_location: "Kempegowda International Airport (BLR), Terminal 2",
+                  drop_latitude: 13.1989,
+                  drop_longitude: 77.7068,
+                  fare: 1250,
+                  distance: "42.5 km",
+                  vehicle_type: "Sedan",
+                  trip_type: "Airport Transfer",
+                  payment_method: "Cash",
+                  cash_to_collect: 1250,
+                  allowed_km: 45,
+                  extra_km_rate: 14,
+                  toll_included: "INCLUDED",
+                  permit_included: "EXCLUDED",
+                  batta_included: "INCLUDED",
+                  hill_charges_applicable: "NOT_APPLICABLE",
+                });
+                setCurrentTab("website-bookings");
+              }}
+              onViewDriverDetails={(driverId) => {
+                setSelectedDriverId(driverId);
+                setCurrentTab('driver-details');
+              }}
+            />
+          )}
+
           {currentTab === 'customers' && (
             <CustomersManager
               trips={trips}
+              onViewCustomerDetails={(cust) => {
+                setSelectedCustomer(cust);
+                setCurrentTab('customer-details');
+              }}
               onDispatchForCustomer={(name, phone) => {
                 handleCreateTrip({
                   customer_name: name,
@@ -525,6 +737,94 @@ export default function App() {
               onUpdateDeposit={handleUpdateDeposit}
             />
           )}
+
+          {(currentTab === 'website-bookings' || currentTab === 'website-book-cab' || currentTab === 'website-users' || currentTab === 'website-applications' || currentTab === 'website-inquiries') && (
+            <WebsiteManager
+              openBookCabModal={currentTab === 'website-book-cab'}
+              onCloseBookCabModal={() => setCurrentTab('website-bookings')}
+              onViewCustomerDetails={(cust) => {
+                setSelectedCustomer(cust);
+                setCustomerBackTab('website-users');
+                setCurrentTab('customer-details');
+              }}
+              trips={trips}
+              drivers={drivers}
+              websiteBookings={websiteBookings}
+              websiteUsers={websiteUsers}
+              driverApplications={driverApplications}
+              contactSubmissions={contactSubmissions}
+              activeSubTab={
+                currentTab === 'website-users'
+                  ? 'users'
+                  : currentTab === 'website-applications'
+                  ? 'applications'
+                  : currentTab === 'website-inquiries'
+                  ? 'inquiries'
+                  : 'bookings'
+              }
+              onRefresh={loadDatabase}
+              onAssignDriver={handleAssignDriver}
+              onApproveDriverApplication={async (app) => {
+                await approveWebsiteDriverApplication(app);
+                setDriverApplications((prev) =>
+                  prev.map((a) => (a.id === app.id ? { ...a, status: 'APPROVED' } : a))
+                );
+                await getDrivers().then(setDrivers);
+              }}
+              onUpdateInquiryStatus={async (id, status) => {
+                await updateWebsiteContactStatus(id, status);
+                setContactSubmissions((prev) =>
+                  prev.map((c) => (c.id === id ? { ...c, status } : c))
+                );
+              }}
+              onUpdateCustomer={async (cust) => {
+                await updateCustomerProfile(cust);
+                setWebsiteUsers((prev) => {
+                  const exists = prev.some((u) => u.mobile === cust.mobile);
+                  if (exists) {
+                    return prev.map((u) => (u.mobile === cust.mobile ? { ...u, ...cust } : u));
+                  }
+                  return [{ id: cust.id || 'usr_' + Date.now(), ...cust, created_at: new Date().toISOString() }, ...prev];
+                });
+                setTrips((prev) =>
+                  prev.map((t) => (t.customer_phone === cust.mobile ? { ...t, customer_name: cust.name } : t))
+                );
+              }}
+              onDeleteCustomer={async (phone, id) => {
+                await deleteCustomerProfile(phone, id);
+                setWebsiteUsers((prev) => prev.filter((u) => u.mobile !== phone && u.id !== id));
+              }}
+              onDispatchForCustomer={(name, phone) => {
+                handleCreateTrip({
+                  customer_name: name,
+                  customer_phone: phone,
+                  pickup_location: "Koramangala 5th Block, Bengaluru",
+                  pickup_latitude: 12.9352,
+                  pickup_longitude: 77.6245,
+                  drop_location: "Kempegowda International Airport (BLR), Terminal 2",
+                  drop_latitude: 13.1989,
+                  drop_longitude: 77.7068,
+                  fare: 1250,
+                  distance: "42.5 km",
+                  vehicle_type: "Sedan",
+                  trip_type: "Airport Transfer",
+                  payment_method: "Cash",
+                  cash_to_collect: 1250,
+                  allowed_km: 45,
+                  extra_km_rate: 14,
+                  toll_included: "INCLUDED",
+                  permit_included: "EXCLUDED",
+                  batta_included: "INCLUDED",
+                  hill_charges_applicable: "NOT_APPLICABLE",
+                });
+                setCurrentTab("website-bookings");
+              }}
+              onViewDriverDetails={(driverId) => {
+                setSelectedDriverId(driverId);
+                setCurrentTab('driver-details');
+              }}
+            />
+          )}
         </main>
       </div>
 
@@ -536,7 +836,7 @@ export default function App() {
         isSyncing={isSyncing}
       />
       {/* Mobile Bottom Navigation Bar */}
-      <nav className="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 z-30 flex items-center justify-around py-2 shadow-lg">
+      <nav className="md:hidden fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur-md border-t border-slate-200/80 z-30 flex items-center justify-around pt-2 pb-[max(0.6rem,env(safe-area-inset-bottom))] px-1 shadow-lg shadow-slate-900/10">
         <button
           onClick={() => setCurrentTab('overview')}
           className={`flex flex-col items-center gap-0.5 text-[10px] font-bold ${

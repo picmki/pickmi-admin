@@ -80,7 +80,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   return (
     <div className="space-y-6">
       {/* Welcome Banner */}
-      <div className="bg-gradient-to-r from-[#0043DC] to-[#1E6BFF] rounded-2xl p-6 text-white shadow-lg shadow-[#0043DC]/15 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="bg-gradient-to-r from-[#0043DC] to-[#1E6BFF] rounded-2xl p-4 sm:p-6 text-white shadow-lg shadow-[#0043DC]/15 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="space-y-1">
           <div className="flex items-center space-x-2">
             <span className="px-2 py-0.5 text-[10px] font-black uppercase bg-white/20 rounded-md">Live Command</span>
@@ -95,7 +95,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         <div className="flex items-center space-x-3">
           <button
             onClick={onOpenCreateTrip}
-            className="flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-white text-[#0043DC] font-black text-xs transition shadow-md hover:bg-blue-50 active:scale-95"
+            className="w-full sm:w-auto flex items-center justify-center space-x-2 px-5 py-3 sm:py-2.5 rounded-xl bg-white text-[#0043DC] font-black text-xs transition shadow-md hover:bg-blue-50 active:scale-95"
           >
             <PlusCircle className="w-4 h-4" />
             <span>Create & Dispatch Trip</span>
@@ -104,14 +104,14 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       </div>
 
       {/* Metric Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {stats.map((s, idx) => {
           const Icon = s.icon;
           return (
             <div
               key={idx}
               onClick={() => onNavigateTab(s.actionTab)}
-              className="bg-white border border-slate-200 rounded-2xl p-5 hover:border-[#0043DC]/40 hover:shadow-md transition cursor-pointer shadow-sm group"
+              className="bg-white border border-slate-200 rounded-2xl p-3.5 sm:p-5 hover:border-[#0043DC]/40 hover:shadow-md transition cursor-pointer shadow-sm group"
             >
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">{s.title}</span>
@@ -130,7 +130,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       </div>
 
       {/* Quick Dispatch Presets */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
+      <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm space-y-4">
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-base font-black text-slate-900">Instant Quick Dispatch Presets</h3>

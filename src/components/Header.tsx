@@ -21,8 +21,8 @@ export const Header: React.FC<HeaderProps> = ({
   onLogout,
 }) => {
   return (
-    <header className="bg-white border-b border-slate-200 sticky top-0 z-20 shadow-xs">
-      <div className="px-4 sm:px-6 h-16 flex items-center justify-between gap-2">
+    <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
+      <div className="px-3 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-1.5 sm:gap-2">
         {/* Title area & Mobile Menu Toggle */}
         <div className="flex items-center space-x-3">
           <button
@@ -34,8 +34,8 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
 
           <div className="flex items-center space-x-2">
-            <div className="text-sm sm:text-base font-black tracking-tight text-slate-800">
-              PickMi Fleet Command
+            <div className="text-xs sm:text-base font-black tracking-tight text-slate-800 truncate">
+              PickMi <span className="hidden xs:inline">Fleet Command</span>
             </div>
             <span className="text-slate-300 hidden sm:inline">|</span>
             <div className="text-xs text-slate-500 hidden md:block">
@@ -90,7 +90,7 @@ export const Header: React.FC<HeaderProps> = ({
             className="flex items-center space-x-1.5 sm:space-x-2 px-3 sm:px-4 py-2 rounded-xl bg-[#0043DC] hover:bg-[#0036b3] text-white font-bold text-xs tracking-wide transition shadow-md shadow-[#0043DC]/20 active:scale-95"
           >
             <PlusCircle className="w-4 h-4" />
-            <span className="hidden xs:inline sm:inline">Create Trip</span>
+            <span className="hidden sm:inline">Create Trip</span>
           </button>
           {/* Logout Button */}
           {onLogout && (

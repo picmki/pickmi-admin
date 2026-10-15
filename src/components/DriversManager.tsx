@@ -22,6 +22,7 @@ interface DriversManagerProps {
   drivers: Driver[];
   onToggleOnline: (driverId: string, currentStatus: 'ONLINE' | 'OFFLINE') => Promise<void>;
   onToggleDeposit: (driverId: string, currentStatus: 'PAID' | 'PENDING') => Promise<void>;
+  onUpdateDriverStatus?: (driverId: string, status: 'active' | 'inactive' | 'suspended') => Promise<void>;
   onInspectDocuments: (driver: Driver) => void;
   onAddDriver: (payload: any) => Promise<void>;
   onViewDriverDetails?: (driverId: string) => void;
@@ -31,6 +32,7 @@ export const DriversManager: React.FC<DriversManagerProps> = ({
   drivers,
   onToggleOnline,
   onToggleDeposit,
+  onUpdateDriverStatus,
   onInspectDocuments,
   onAddDriver,
   onViewDriverDetails,
@@ -104,7 +106,7 @@ export const DriversManager: React.FC<DriversManagerProps> = ({
       </div>
 
       {/* Search Bar */}
-      <div className="flex items-center justify-between bg-white p-3 rounded-2xl border border-slate-200">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-slate-200">
         <div className="relative w-full max-w-md">
           <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-500" />
           <input
@@ -123,7 +125,7 @@ export const DriversManager: React.FC<DriversManagerProps> = ({
 
       {/* Fleet Table */}
       <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xl">
-        <div className="overflow-x-auto">
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left text-xs text-slate-700">
             <thead className="bg-slate-50 text-slate-500 font-semibold uppercase text-[10px] tracking-wider border-b border-slate-200">
               <tr>
@@ -183,6 +185,41 @@ export const DriversManager: React.FC<DriversManagerProps> = ({
                         </div>
                         <div className="text-[11px] text-slate-500">
                           {driver.vehicle?.vehicle_type || 'Sedan'} • {driver.vehicle?.vehicle_model || 'Standard'}
+                        </div>
+                      </td>
+
+                      {/* Account Status & Hold Toggle */}
+                      <td className="py-3.5 px-4">
+                        <div className="flex items-center space-x-1.5">
+                          <span
+                            className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border ${
+                              driver.status === 'active'
+                                ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                                : driver.status === 'suspended'
+                                ? 'bg-rose-50 border-rose-200 text-rose-700 animate-pulse'
+                                : 'bg-amber-50 border-amber-200 text-amber-700'
+                            }`}
+                          >
+                            {driver.status === 'suspended' ? 'On Hold' : driver.status || 'inactive'}
+                          </span>
+                          {onUpdateDriverStatus && (
+                            <button
+                              onClick={() =>
+                                onUpdateDriverStatus(
+                                  driver.id,
+                                  driver.status === 'active' ? 'suspended' : 'active'
+                                )
+                              }
+                              className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition ${
+                                driver.status === 'active'
+                                  ? 'bg-rose-50 hover:bg-rose-100 text-rose-600 border-rose-200'
+                                  : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200'
+                              }`}
+                              title={driver.status === 'active' ? 'Put Account on Hold' : 'Activate Account'}
+                            >
+                              {driver.status === 'active' ? 'Hold' : 'Activate'}
+                            </button>
+                          )}
                         </div>
                       </td>
 
@@ -262,12 +299,131 @@ export const DriversManager: React.FC<DriversManagerProps> = ({
             </tbody>
           </table>
         </div>
+
+        {/* Mobile Driver Cards View (Screens < 768px) */}
+        <div className="block md:hidden divide-y divide-slate-100">
+          {filteredDrivers.length === 0 ? (
+            <div className="py-10 px-4 text-center text-slate-500">
+              <p className="font-bold text-slate-700">No drivers found.</p>
+              <button
+                onClick={() => setIsAddModalOpen(true)}
+                className="mt-3 px-4 py-2 rounded-xl bg-[#0043DC] text-white font-bold text-xs shadow-sm"
+              >
+                + Add New Driver
+              </button>
+            </div>
+          ) : (
+            filteredDrivers.map((driver) => {
+              const isOnline = driver.online_status === 'ONLINE';
+              const isDepositPaid = driver.deposit_status === 'PAID';
+
+              return (
+                <div key={driver.id} className="p-4 space-y-3 hover:bg-slate-50/50 transition">
+                  {/* Driver Header */}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center space-x-3">
+                      <img
+                        onClick={() => onViewDriverDetails?.(driver.id)}
+                        src={
+                          driver.profile_image ||
+                          'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=120&q=80'
+                        }
+                        alt={driver.name}
+                        className="w-12 h-12 rounded-xl object-cover border border-slate-200 shrink-0 cursor-pointer"
+                      />
+                      <div>
+                        <h4
+                          onClick={() => onViewDriverDetails?.(driver.id)}
+                          className="font-bold text-slate-900 text-sm hover:text-[#0043DC] cursor-pointer"
+                        >
+                          {driver.name}
+                        </h4>
+                        <div className="flex items-center space-x-2 text-[11px] text-slate-500 font-mono mt-0.5">
+                          <Phone className="w-3 h-3 text-slate-400" />
+                          <span>{driver.mobile}</span>
+                        </div>
+                        <div className="text-[11px] text-slate-500 font-medium">
+                          {driver.vehicle?.vehicle_number || 'No Vehicle'} • {driver.vehicle?.vehicle_type || 'Sedan'}
+                        </div>
+                      </div>
+                    </div>
+
+                    <a
+                      href={`tel:${driver.mobile}`}
+                      className="p-2 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold shrink-0"
+                      title="Call Driver"
+                    >
+                      <Phone className="w-4 h-4" />
+                    </a>
+                  </div>
+
+                  {/* Badges & Status Toggles */}
+                  <div className="grid grid-cols-2 gap-2 pt-1 text-xs">
+                    {/* Online Toggle */}
+                    <button
+                      onClick={() => onToggleOnline(driver.id, driver.online_status)}
+                      className={`flex items-center justify-center space-x-1.5 py-1.5 px-3 rounded-xl font-bold border transition ${
+                        isOnline
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                          : 'bg-slate-50 border-slate-200 text-slate-500'
+                      }`}
+                    >
+                      <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+                      <span className="text-[11px]">{isOnline ? 'ONLINE' : 'OFFLINE'}</span>
+                    </button>
+
+                    {/* Deposit Toggle */}
+                    <button
+                      onClick={() => onToggleDeposit(driver.id, driver.deposit_status)}
+                      className={`flex items-center justify-center space-x-1 py-1.5 px-3 rounded-xl font-bold border transition ${
+                        isDepositPaid
+                          ? 'bg-blue-50 border-blue-200 text-[#0043DC]'
+                          : 'bg-amber-50 border-amber-200 text-amber-700'
+                      }`}
+                    >
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      <span className="text-[11px]">Deposit: {driver.deposit_status}</span>
+                    </button>
+                  </div>
+
+                  {/* Actions Bar */}
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase border ${
+                      driver.status === 'active'
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                        : driver.status === 'suspended'
+                        ? 'bg-rose-50 border-rose-200 text-rose-700'
+                        : 'bg-amber-50 border-amber-200 text-amber-700'
+                    }`}>
+                      {driver.status === 'suspended' ? 'On Hold' : driver.status || 'inactive'}
+                    </span>
+
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={() => onInspectDocuments(driver)}
+                        className="px-2.5 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-[11px] font-semibold text-slate-700 border border-slate-200"
+                      >
+                        Docs
+                      </button>
+                      <button
+                        onClick={() => onViewDriverDetails?.(driver.id)}
+                        className="px-3 py-1.5 rounded-xl bg-[#0043DC] hover:bg-[#0036b3] text-[11px] font-bold text-white shadow-xs"
+                      >
+                        Profile
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
       </div>
 
       {/* Add New Driver Modal */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl relative my-8">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto p-4 sm:p-6 space-y-4 shadow-2xl relative my-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-200">
               <h3 className="text-base font-bold text-slate-900 flex items-center space-x-2">
                 <UserPlus className="w-5 h-5 text-emerald-700" />

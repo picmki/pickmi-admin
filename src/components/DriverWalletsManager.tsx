@@ -308,7 +308,7 @@ export const DriverWalletsManager: React.FC<DriverWalletsManagerProps> = ({
 
       {/* Drivers Wallet Table */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-50/80 border-b border-slate-200 text-[11px] font-black text-slate-500 uppercase tracking-wider">
@@ -436,12 +436,91 @@ export const DriverWalletsManager: React.FC<DriverWalletsManagerProps> = ({
             </tbody>
           </table>
         </div>
+
+        {/* Mobile Driver Wallets View (Screens < 768px) */}
+        <div className="block md:hidden divide-y divide-slate-100">
+          {filteredDrivers.length === 0 ? (
+            <div className="py-10 px-4 text-center text-slate-400 font-medium">
+              No drivers match the selected filter.
+            </div>
+          ) : (
+            filteredDrivers.map((driver) => {
+              const balance = driverBalances[driver.id] || 0;
+              const isNegative = balance < 0;
+
+              return (
+                <div key={driver.id} className="p-4 space-y-3 hover:bg-slate-50/50 transition">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center space-x-3">
+                      <img
+                        src={driver.profile_image || '/default-avatar.svg'}
+                        alt={driver.name}
+                        className="w-10 h-10 rounded-full object-cover border border-slate-200 shrink-0"
+                      />
+                      <div>
+                        <p className="font-extrabold text-slate-900 text-sm">{driver.name}</p>
+                        <div className="flex items-center space-x-1 text-[11px] text-slate-500 font-mono">
+                          <Phone className="w-3 h-3 text-slate-400" />
+                          <span>{driver.mobile}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <span className={`text-sm font-black font-mono ${
+                      isNegative ? 'text-rose-600' : balance > 0 ? 'text-emerald-600' : 'text-slate-800'
+                    }`}>
+                      {balance < 0 ? `-₹${Math.abs(balance).toLocaleString('en-IN')}` : `₹${balance.toLocaleString('en-IN')}`}
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-xs flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] text-slate-400 font-bold uppercase block">City</span>
+                      <span className="font-semibold text-slate-700 capitalize">{driver.current_city || 'Bengaluru'}</span>
+                    </div>
+
+                    <div className="text-right">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase block">Status</span>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                        driver.online_status === 'ONLINE' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
+                      }`}>
+                        {driver.online_status}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="pt-1 flex items-center justify-end space-x-2">
+                    <button
+                      onClick={() => setSelectedDriverForLedger(driver)}
+                      className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition flex items-center space-x-1"
+                    >
+                      <History className="w-3.5 h-3.5" />
+                      <span>Ledger</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setSelectedDriverForPenalty(driver);
+                        setPenaltyAmount('500');
+                        setPenaltyNotes('');
+                      }}
+                      className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold transition flex items-center space-x-1"
+                    >
+                      <AlertTriangle className="w-3.5 h-3.5" />
+                      <span>Apply Penalty</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
       </div>
 
       {/* ── MODAL: APPLY PENALTY / DEDUCTION ── */}
       {selectedDriverForPenalty && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+          <div className="bg-white w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 my-auto">
             {/* Modal Header */}
             <div className="bg-rose-600 px-6 py-4 text-white flex items-center justify-between">
               <div className="flex items-center space-x-2.5">
@@ -554,11 +633,11 @@ export const DriverWalletsManager: React.FC<DriverWalletsManagerProps> = ({
               {/* Custom Notes */}
               <div>
                 <label className="block text-xs font-extrabold text-slate-700 uppercase tracking-wider mb-1.5">
-                  Notes / Details (Optional)
+                  Admin Remarks (Shown on Driver App Subtitle)
                 </label>
                 <textarea
                   rows={2}
-                  placeholder="e.g. Passenger reported driver cancelled after arriving 15m late."
+                  placeholder="e.g. Customer cancelled after driver arrived 15 min late. Clear violation of reporting time."
                   value={penaltyNotes}
                   onChange={(e) => setPenaltyNotes(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-rose-500"

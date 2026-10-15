@@ -74,15 +74,53 @@ export const CreateTripModal: React.FC<CreateTripModalProps> = ({
         }
       }
 
+      let finalPickupLat = pickupLat;
+      let finalPickupLng = pickupLng;
+      let finalDropLat = dropLat;
+      let finalDropLng = dropLng;
+
+      const geocodeLoc = async (text: string) => {
+        if (!text || text.trim().length === 0) return null;
+        try {
+          const parts = text.split(",").map(s => s.trim()).filter(Boolean);
+          const q = parts.slice(0, 3).join(", ");
+          const res = await fetch("https://nominatim.openstreetmap.org/search?format=json&q=" + encodeURIComponent(q) + "&limit=1");
+          const data = await res.json();
+          if (data && data[0]) return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+        } catch (e) {}
+        try {
+          const city = text.split(",")[0].trim();
+          const res = await fetch("https://nominatim.openstreetmap.org/search?format=json&q=" + encodeURIComponent(city) + "&limit=1");
+          const data = await res.json();
+          if (data && data[0]) return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+        } catch (e) {}
+        return null;
+      };
+
+      try {
+        const [pGeo, dGeo] = await Promise.all([
+          geocodeLoc(payloadPickup),
+          geocodeLoc(payloadDrop)
+        ]);
+        if (pGeo) {
+          finalPickupLat = pGeo.lat;
+          finalPickupLng = pGeo.lng;
+        }
+        if (dGeo) {
+          finalDropLat = dGeo.lat;
+          finalDropLng = dGeo.lng;
+        }
+      } catch (e) {}
+
       await onSubmit({
         customer_name: payloadName,
         customer_phone: payloadPhone,
         pickup_location: payloadPickup,
-        pickup_latitude: pickupLat,
-        pickup_longitude: pickupLng,
+        pickup_latitude: finalPickupLat,
+        pickup_longitude: finalPickupLng,
         drop_location: payloadDrop,
-        drop_latitude: dropLat,
-        drop_longitude: dropLng,
+        drop_latitude: finalDropLat,
+        drop_longitude: finalDropLng,
         fare,
         distance,
         allowed_km: allowedKm,
@@ -99,8 +137,8 @@ export const CreateTripModal: React.FC<CreateTripModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-xl w-full p-6 space-y-6 shadow-2xl relative my-8">
+    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-xl w-full max-h-[92vh] overflow-y-auto p-4 sm:p-6 space-y-4 sm:space-y-6 shadow-2xl relative my-auto">
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-slate-800">
           <div className="flex items-center space-x-3">
@@ -121,7 +159,7 @@ export const CreateTripModal: React.FC<CreateTripModalProps> = ({
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form noValidate onSubmit={handleSubmit} className="space-y-4">
           {/* Customer Info */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
@@ -222,8 +260,6 @@ export const CreateTripModal: React.FC<CreateTripModalProps> = ({
                 <IndianRupee className="w-4 h-4 absolute left-3 top-3 text-slate-500" />
                 <input
                   type="number"
-                 
-                  min={50}
                   value={fare}
                   onChange={(e) => setFare(Number(e.target.value))}
                   className="w-full pl-9 pr-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500 font-bold"
@@ -235,7 +271,6 @@ export const CreateTripModal: React.FC<CreateTripModalProps> = ({
               <div className="relative">
                 <input
                   type="number"
-                  min={1}
                   value={allowedKm}
                   onChange={(e) => {
                     const val = Number(e.target.value);

@@ -45,7 +45,13 @@ import type { Driver, DriverDocument } from '../types';
 interface DocumentVerificationProps {
   drivers: Driver[];
   documents: DriverDocument[];
-  onVerifyDocument: (docId: string, status: 'Verified' | 'Rejected', reason?: string) => Promise<void>;
+  onVerifyDocument: (
+    docId: string,
+    status: 'Verified' | 'Rejected',
+    reason?: string,
+    fallbackDriverId?: string,
+    fallbackDocType?: string
+  ) => Promise<void>;
   onVerifyAllDocuments: (driverId: string) => Promise<void>;
   onViewDriverDetails?: (driverId: string) => void;
 }
@@ -63,6 +69,7 @@ export const DocumentVerification: React.FC<DocumentVerificationProps> = ({
   const [previewDoc, setPreviewDoc] = useState<DriverDocument | null>(null);
   const [rejectionModalDoc, setRejectionModalDoc] = useState<DriverDocument | null>(null);
   const [rejectionReason, setRejectionReason] = useState('Document image is blurry or expired');
+  const [customRemarks, setCustomRemarks] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
@@ -132,11 +139,19 @@ export const DocumentVerification: React.FC<DocumentVerificationProps> = ({
     setTimeout(() => setSuccessMessage(null), 4000);
   };
 
-  const handleApproveSingleDoc = async (docId: string, driverName?: string) => {
+  const handleApproveSingleDoc = async (
+    docId: string,
+    driverName?: string,
+    fallbackDriverId?: string,
+    fallbackDocType?: string
+  ) => {
     setIsProcessing(true);
     try {
-      await onVerifyDocument(docId, 'Verified');
+      await onVerifyDocument(docId, 'Verified', undefined, fallbackDriverId, fallbackDocType);
       showToast(`Document verified successfully!`);
+    } catch (err: any) {
+      console.error('Failed to verify document:', err);
+      showToast(`Failed to verify: ${err.message || 'Unknown error'}`);
     } finally {
       setIsProcessing(false);
     }
@@ -147,10 +162,9 @@ export const DocumentVerification: React.FC<DocumentVerificationProps> = ({
     try {
       await onVerifyAllDocuments(driverId);
       showToast(`🎉 All documents for ${driverName} have been verified & driver activated!`);
-      // Close inspection modal if open
-      if (selectedDriverId === driverId) {
-        setSelectedDriverId(null);
-      }
+    } catch (err: any) {
+      console.error('Failed to verify all documents:', err);
+      showToast(`Failed to verify all: ${err.message || 'Unknown error'}`);
     } finally {
       setIsProcessing(false);
     }
@@ -158,11 +172,25 @@ export const DocumentVerification: React.FC<DocumentVerificationProps> = ({
 
   const handleRejectSubmit = async () => {
     if (!rejectionModalDoc) return;
+    const finalReason = customRemarks.trim()
+      ? `${rejectionReason}: ${customRemarks.trim()}`
+      : rejectionReason;
+
     setIsProcessing(true);
     try {
-      await onVerifyDocument(rejectionModalDoc.id, 'Rejected', rejectionReason);
+      await onVerifyDocument(
+        rejectionModalDoc.id,
+        'Rejected',
+        finalReason,
+        rejectionModalDoc.driver_id,
+        rejectionModalDoc.document_type
+      );
       setRejectionModalDoc(null);
+      setCustomRemarks('');
       showToast(`Document marked as Rejected.`);
+    } catch (err: any) {
+      console.error('Failed to reject document:', err);
+      showToast(`Failed to reject: ${err.message || 'Unknown error'}`);
     } finally {
       setIsProcessing(false);
     }
@@ -308,7 +336,7 @@ export const DocumentVerification: React.FC<DocumentVerificationProps> = ({
 
       {/* Tabs */}
       <div className="flex items-center justify-between border-b border-slate-200">
-        <div className="flex space-x-2">
+        <div className="flex space-x-2 overflow-x-auto no-scrollbar pb-1 max-w-full">
           <button
             onClick={() => setActiveTab('pending')}
             className={`px-4 py-2.5 text-xs font-bold border-b-2 flex items-center space-x-2 transition ${
@@ -491,7 +519,7 @@ export const DocumentVerification: React.FC<DocumentVerificationProps> = ({
                     <ChevronRight className="w-3.5 h-3.5 text-slate-500" />
                   </button>
 
-                  {hasPending && (
+                  {verifiedCount < totalCount && (
                     <button
                       onClick={() => handleApproveAllForDriver(driver.id, driver.name)}
                       disabled={isProcessing}
@@ -543,14 +571,14 @@ export const DocumentVerification: React.FC<DocumentVerificationProps> = ({
               </div>
 
               <div className="flex items-center space-x-2">
-                {selectedDriverGroup.pendingCount > 0 && (
+                {selectedDriverGroup.verifiedCount < selectedDriverGroup.totalCount && (
                   <button
                     onClick={() => handleApproveAllForDriver(selectedDriverGroup.driver.id, selectedDriverGroup.driver.name)}
                     disabled={isProcessing}
                     className="px-4 py-2 rounded-xl bg-[#0043DC] hover:bg-[#0036b3] text-white font-bold text-xs transition shadow-md shadow-[#0043DC]/20 flex items-center space-x-1.5"
                   >
                     <CheckCheck className="w-4 h-4" />
-                    <span>Approve All ({selectedDriverGroup.pendingCount})</span>
+                    <span>Approve All ({selectedDriverGroup.totalCount - selectedDriverGroup.verifiedCount})</span>
                   </button>
                 )}
                 <button
@@ -630,12 +658,48 @@ export const DocumentVerification: React.FC<DocumentVerificationProps> = ({
 
                       {/* Action buttons */}
                       <div className="pt-3 border-t border-slate-100 flex items-center space-x-2">
-                        {isPending ? (
+                        {isVerified ? (
+                          <>
+                            <div className="flex-1 flex items-center space-x-1.5 text-xs text-emerald-700 font-bold bg-emerald-50 px-3 py-2 rounded-xl border border-emerald-200">
+                              <CheckCircle className="w-4 h-4 text-emerald-600" />
+                              <span>Approved</span>
+                            </div>
+                            <button
+                              onClick={() => setRejectionModalDoc(doc)}
+                              disabled={isProcessing}
+                              className="px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs transition flex items-center justify-center space-x-1"
+                              title="Reject this document"
+                            >
+                              <XCircle className="w-3.5 h-3.5" />
+                              <span>Reject</span>
+                            </button>
+                          </>
+                        ) : isRejected ? (
                           <>
                             <button
-                              onClick={() => handleApproveSingleDoc(doc.id, selectedDriverGroup.driver.name)}
+                              onClick={() => handleApproveSingleDoc(doc.id, selectedDriverGroup.driver.name, selectedDriverGroup.driver.id, doc.document_type)}
                               disabled={isProcessing}
-                              className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition flex items-center justify-center space-x-1"
+                              className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition flex items-center justify-center space-x-1 shadow-sm"
+                            >
+                              <CheckCircle className="w-3.5 h-3.5" />
+                              <span>Verify & Approve</span>
+                            </button>
+                            <button
+                              onClick={() => setRejectionModalDoc(doc)}
+                              disabled={isProcessing}
+                              className="px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs transition flex items-center justify-center space-x-1"
+                              title="Update rejection reason"
+                            >
+                              <XCircle className="w-3.5 h-3.5" />
+                              <span>Edit Reason</span>
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => handleApproveSingleDoc(doc.id, selectedDriverGroup.driver.name, selectedDriverGroup.driver.id, doc.document_type)}
+                              disabled={isProcessing}
+                              className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition flex items-center justify-center space-x-1 shadow-sm"
                             >
                               <CheckCircle className="w-3.5 h-3.5" />
                               <span>Verify & Approve</span>
@@ -649,16 +713,6 @@ export const DocumentVerification: React.FC<DocumentVerificationProps> = ({
                               <span>Reject</span>
                             </button>
                           </>
-                        ) : (
-                          <div className="w-full flex items-center justify-between text-xs">
-                            <span className="text-slate-500">Status: <strong className="text-slate-800">{doc.verification_status}</strong></span>
-                            <button
-                              onClick={() => handleApproveSingleDoc(doc.id, selectedDriverGroup.driver.name)}
-                              className="text-[11px] font-bold text-[#0043DC] hover:underline"
-                            >
-                              Re-verify
-                            </button>
-                          </div>
                         )}
                       </div>
                     </div>
@@ -715,12 +769,24 @@ export const DocumentVerification: React.FC<DocumentVerificationProps> = ({
               <div className="flex space-x-2">
                 <button
                   onClick={() => {
-                    handleApproveSingleDoc(previewDoc.id);
+                    const docToReject = previewDoc;
+                    setPreviewDoc(null);
+                    setRejectionModalDoc(docToReject);
+                  }}
+                  className="px-4 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs transition flex items-center space-x-1"
+                >
+                  <XCircle className="w-3.5 h-3.5" />
+                  <span>Reject</span>
+                </button>
+                <button
+                  onClick={() => {
+                    handleApproveSingleDoc(previewDoc.id, previewDoc.driver_name, previewDoc.driver_id, previewDoc.document_type);
                     setPreviewDoc(null);
                   }}
-                  className="px-4 py-2 rounded-xl bg-[#0043DC] hover:bg-[#0036b3] text-white font-bold text-xs transition"
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition flex items-center space-x-1"
                 >
-                  Approve This Document
+                  <CheckCircle className="w-3.5 h-3.5" />
+                  <span>Approve This Document</span>
                 </button>
               </div>
             </div>
@@ -740,20 +806,34 @@ export const DocumentVerification: React.FC<DocumentVerificationProps> = ({
               Provide a reason for rejecting this {rejectionModalDoc.document_type}. The driver will receive an app notification with instructions to re-upload.
             </p>
 
-            <div className="space-y-2">
-              <label className="text-xs font-semibold text-slate-700">Rejection Reason</label>
-              <select
-                value={rejectionReason}
-                onChange={(e) => setRejectionReason(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-rose-500"
-              >
-                <option value="Document image is blurry or unreadable">Document image is blurry or unreadable</option>
-                <option value="Document has expired">Document has expired</option>
-                <option value="Name / details mismatch vehicle records">Name / details mismatch vehicle records</option>
-                <option value="Incorrect document uploaded">Incorrect document uploaded</option>
-                <option value="Both front and back sides required">Both front and back sides required</option>
-                <option value="Government watermark or signature missing">Government watermark or signature missing</option>
-              </select>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-semibold text-slate-700 mb-1 block">Rejection Reason</label>
+                <select
+                  value={rejectionReason}
+                  onChange={(e) => setRejectionReason(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-rose-500"
+                >
+                  <option value="Document image is blurry or unreadable">Document image is blurry or unreadable</option>
+                  <option value="Document has expired">Document has expired</option>
+                  <option value="Name / details mismatch vehicle records">Name / details mismatch vehicle records</option>
+                  <option value="Incorrect document uploaded">Incorrect document uploaded</option>
+                  <option value="Both front and back sides required">Both front and back sides required</option>
+                  <option value="Government watermark or signature missing">Government watermark or signature missing</option>
+                  <option value="Other / Custom Reason">Other / Custom Reason</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-700 mb-1 block">Admin Remarks / Specific Instructions (Optional)</label>
+                <textarea
+                  value={customRemarks}
+                  onChange={(e) => setCustomRemarks(e.target.value)}
+                  placeholder="Enter specific remarks for driver (e.g. Please re-upload clear front photo showing valid expiry date)"
+                  rows={3}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-rose-500 resize-none"
+                />
+              </div>
             </div>
 
             <div className="flex justify-end space-x-2 pt-3">

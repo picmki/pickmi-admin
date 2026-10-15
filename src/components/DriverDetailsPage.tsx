@@ -17,7 +17,7 @@ export function getSafeDocUrl(url?: string | null, type?: string | null): string
   return url;
 }
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   ArrowLeft,
   Phone,
@@ -45,6 +45,7 @@ import {
   DollarSign
 } from "lucide-react";
 import type { Driver, Trip, DriverDocument } from "../types";
+import { getDriverDocuments } from "../lib/supabase";
 
 interface DriverDetailsPageProps {
   driver: Driver;
@@ -52,7 +53,14 @@ interface DriverDetailsPageProps {
   onBack: () => void;
   onToggleOnline: (driverId: string, currentStatus: string) => Promise<void>;
   onToggleDeposit: (driverId: string, currentStatus: string) => Promise<void>;
-  onVerifyDocument: (docId: string, status: "Verified" | "Rejected") => Promise<void>;
+  onUpdateDriverStatus?: (driverId: string, status: 'active' | 'inactive' | 'suspended') => Promise<void>;
+  onVerifyDocument: (
+    docId: string,
+    status: "Verified" | "Rejected",
+    reason?: string,
+    fallbackDriverId?: string,
+    fallbackDocType?: string
+  ) => Promise<void>;
   onVerifyAllDocuments?: (driverId: string) => Promise<void>;
   onAssignTrip: (driverId: string) => void;
 }
@@ -63,6 +71,7 @@ export const DriverDetailsPage: React.FC<DriverDetailsPageProps> = ({
   onBack,
   onToggleOnline,
   onToggleDeposit,
+  onUpdateDriverStatus,
   onVerifyDocument,
   onVerifyAllDocuments,
   onAssignTrip,
@@ -74,6 +83,28 @@ export const DriverDetailsPage: React.FC<DriverDetailsPageProps> = ({
 
   const isOnline = driver.online_status === "ONLINE";
   const isDepositPaid = driver.deposit_status === "PAID";
+  const isAccountActive = driver.status === "active";
+  const isAccountOnHold = driver.status === "suspended";
+  const isAccountInactive = driver.status === "inactive";
+
+  const handleSetAccountStatus = async (newStatus: 'active' | 'inactive' | 'suspended') => {
+    if (!onUpdateDriverStatus) return;
+    setActionLoading(true);
+    try {
+      await onUpdateDriverStatus(driver.id, newStatus);
+      const statusLabel = newStatus === 'active' ? 'Active' : newStatus === 'suspended' ? 'On Hold (Suspended)' : 'Inactive';
+      setFeedbackToast({
+        message: `Driver account status changed to ${statusLabel}.`,
+        type: newStatus === 'suspended' ? 'error' : 'success'
+      });
+      setTimeout(() => setFeedbackToast(null), 4000);
+    } catch (err: any) {
+      setFeedbackToast({ message: `Failed to update status: ${err.message || 'Error'}`, type: 'error' });
+      setTimeout(() => setFeedbackToast(null), 4000);
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   // Filter trips for this driver
   const driverTrips = trips.filter(
@@ -95,12 +126,109 @@ export const DriverDetailsPage: React.FC<DriverDetailsPageProps> = ({
     setTimeout(() => setCopiedField(null), 2000);
   };
 
-  const docs = driver.documents || [];
+  const [loadedDocs, setLoadedDocs] = useState<DriverDocument[]>(driver.documents || []);
+  const [rejectionModalDoc, setRejectionModalDoc] = useState<DriverDocument | null>(null);
+  const [rejectionReason, setRejectionReason] = useState('Document image is blurry or expired');
+  const [customRemarks, setCustomRemarks] = useState('');
+  const [feedbackToast, setFeedbackToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  useEffect(() => {
+    if ((!driver.documents || driver.documents.length === 0) && driver.id) {
+      getDriverDocuments(driver.id).then(setLoadedDocs).catch(() => {});
+    } else {
+      setLoadedDocs(driver.documents || []);
+    }
+  }, [driver.id, driver.documents]);
+
+  const handleApproveDoc = async (doc: DriverDocument) => {
+    setActionLoading(true);
+    try {
+      await onVerifyDocument(doc.id, "Verified", undefined, driver.id, doc.document_type);
+      setLoadedDocs((prev) =>
+        prev.map((d) => (d.id === doc.id ? { ...d, verification_status: "Verified", rejection_reason: null } : d))
+      );
+      setFeedbackToast({ message: `${doc.document_type} approved successfully!`, type: 'success' });
+      setTimeout(() => setFeedbackToast(null), 3500);
+    } catch (err: any) {
+      console.error('handleApproveDoc error:', err);
+      setFeedbackToast({ message: `Failed to approve: ${err.message || 'Error'}`, type: 'error' });
+      setTimeout(() => setFeedbackToast(null), 4000);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleConfirmReject = async () => {
+    if (!rejectionModalDoc) return;
+    const finalReason = customRemarks.trim()
+      ? `${rejectionReason}: ${customRemarks.trim()}`
+      : rejectionReason;
+
+    setActionLoading(true);
+    try {
+      await onVerifyDocument(
+        rejectionModalDoc.id,
+        "Rejected",
+        finalReason,
+        driver.id,
+        rejectionModalDoc.document_type
+      );
+      setLoadedDocs((prev) =>
+        prev.map((d) =>
+          d.id === rejectionModalDoc.id
+            ? { ...d, verification_status: "Rejected", rejection_reason: finalReason }
+            : d
+        )
+      );
+      setRejectionModalDoc(null);
+      setCustomRemarks('');
+      setFeedbackToast({ message: `${rejectionModalDoc.document_type} marked as Rejected.`, type: 'success' });
+      setTimeout(() => setFeedbackToast(null), 3500);
+    } catch (err: any) {
+      console.error('handleConfirmReject error:', err);
+      setFeedbackToast({ message: `Failed to reject: ${err.message || 'Error'}`, type: 'error' });
+      setTimeout(() => setFeedbackToast(null), 4000);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleApproveAll = async () => {
+    if (!onVerifyAllDocuments) return;
+    setActionLoading(true);
+    try {
+      await onVerifyAllDocuments(driver.id);
+      setLoadedDocs((prev) =>
+        prev.map((d) => ({ ...d, verification_status: "Verified", rejection_reason: null }))
+      );
+      setFeedbackToast({ message: `All documents for ${driver.name} verified & approved!`, type: 'success' });
+      setTimeout(() => setFeedbackToast(null), 3500);
+    } catch (err: any) {
+      console.error('handleApproveAll error:', err);
+      setFeedbackToast({ message: `Failed to approve all: ${err.message || 'Error'}`, type: 'error' });
+      setTimeout(() => setFeedbackToast(null), 4000);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const docs = loadedDocs;
   const verifiedDocsCount = docs.filter((d) => d.verification_status === "Verified").length;
   const isAllDocsVerified = docs.length > 0 && docs.every((d) => d.verification_status === "Verified") && driver.status === "active";
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
+      {/* Toast Notification */}
+      {feedbackToast && (
+        <div
+          className={`px-4 py-3 rounded-2xl text-white font-semibold text-xs shadow-lg flex items-center justify-between transition animate-in fade-in slide-in-from-top-2 ${
+            feedbackToast.type === 'success' ? 'bg-emerald-600 shadow-emerald-600/20' : 'bg-red-600 shadow-red-600/20'
+          }`}
+        >
+          <span>{feedbackToast.message}</span>
+          <button onClick={() => setFeedbackToast(null)} className="text-white/80 hover:text-white">✕</button>
+        </div>
+      )}
       {/* ─── Top Bar Navigation ─── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-sm">
         <div className="flex items-center space-x-3">
@@ -121,6 +249,60 @@ export const DriverDetailsPage: React.FC<DriverDetailsPageProps> = ({
 
         {/* Quick Action Badges */}
         <div className="flex flex-wrap items-center gap-2">
+          {/* Account Status (Active / On Hold / Inactive) */}
+          <div className="inline-flex items-center space-x-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200">
+            <span
+              className={`px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider flex items-center space-x-1 ${
+                isAccountActive
+                  ? "bg-emerald-600 text-white shadow-sm"
+                  : isAccountOnHold
+                  ? "bg-rose-600 text-white shadow-sm animate-pulse"
+                  : "bg-amber-500 text-white shadow-sm"
+              }`}
+            >
+              <span>{isAccountActive ? "Account Active" : isAccountOnHold ? "Account On Hold" : "Account Inactive"}</span>
+            </span>
+
+            {isAccountActive ? (
+              <>
+                <button
+                  onClick={() => handleSetAccountStatus('suspended')}
+                  disabled={actionLoading}
+                  className="px-2.5 py-1 rounded-lg text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition disabled:opacity-50"
+                  title="Hold / Suspend this driver account"
+                >
+                  Hold Account
+                </button>
+                <button
+                  onClick={() => handleSetAccountStatus('inactive')}
+                  disabled={actionLoading}
+                  className="px-2 py-1 rounded-lg text-xs font-semibold text-slate-600 hover:bg-white transition disabled:opacity-50"
+                >
+                  Set Inactive
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => handleSetAccountStatus('active')}
+                  disabled={actionLoading}
+                  className="px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition disabled:opacity-50"
+                  title="Activate driver account"
+                >
+                  Activate Account
+                </button>
+                {!isAccountOnHold && (
+                  <button
+                    onClick={() => handleSetAccountStatus('suspended')}
+                    disabled={actionLoading}
+                    className="px-2.5 py-1 rounded-lg text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition disabled:opacity-50"
+                  >
+                    Hold
+                  </button>
+                )}
+              </>
+            )}
+          </div>
           {/* Online Toggle */}
           <button
             onClick={async () => {
@@ -194,7 +376,7 @@ export const DriverDetailsPage: React.FC<DriverDetailsPageProps> = ({
       </div>
 
       {/* ─── Hero Driver Profile Card ─── */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+      <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-6 shadow-sm">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
           {/* Avatar and Basic Info */}
           <div className="flex flex-col sm:flex-row sm:items-center gap-5">
@@ -331,7 +513,7 @@ export const DriverDetailsPage: React.FC<DriverDetailsPageProps> = ({
       </div>
 
       {/* ─── Navigation Tabs ─── */}
-      <div className="flex border-b border-slate-200 space-x-1 sm:space-x-3 overflow-x-auto">
+      <div className="flex border-b border-slate-200 space-x-1 sm:space-x-3 overflow-x-auto no-scrollbar pb-0.5">
         {[
           { id: "documents", label: "KYC & Documents", icon: FileText, count: docs.length || 5 },
           { id: "vehicle", label: "Vehicle Information", icon: Car },
@@ -369,16 +551,28 @@ export const DriverDetailsPage: React.FC<DriverDetailsPageProps> = ({
       {/* ─── TAB 1: KYC & REGULATORY DOCUMENTS ─── */}
       {activeTab === "documents" && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h2 className="text-base font-bold text-slate-900">Driver License & Legal Documents</h2>
               <p className="text-xs text-slate-500">
                 Inspect high-resolution photo proofs submitted by driver. Click any thumbnail to preview.
               </p>
             </div>
-            <span className="text-xs text-slate-500">
-              Verified: <strong className="text-emerald-600">{verifiedDocsCount}</strong> / {docs.length || 5}
-            </span>
+            <div className="flex items-center space-x-3">
+              <span className="text-xs text-slate-500">
+                Verified: <strong className="text-emerald-600">{verifiedDocsCount}</strong> / {docs.length || 5}
+              </span>
+              {verifiedDocsCount < (docs.length || 5) && onVerifyAllDocuments && (
+                <button
+                  onClick={handleApproveAll}
+                  disabled={actionLoading}
+                  className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition flex items-center space-x-1 shadow-sm disabled:opacity-50"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Approve All Docs</span>
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -534,15 +728,17 @@ export const DriverDetailsPage: React.FC<DriverDetailsPageProps> = ({
 
                       <div className="flex items-center space-x-1.5">
                         <button
-                          onClick={() => onVerifyDocument(doc.id, "Rejected")}
-                          className="px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs font-bold transition flex items-center space-x-1"
+                          onClick={() => setRejectionModalDoc(doc)}
+                          disabled={actionLoading}
+                          className="px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs font-bold transition flex items-center space-x-1 disabled:opacity-50"
                         >
                           <XCircle className="w-3.5 h-3.5" />
                           <span>Reject</span>
                         </button>
                         <button
-                          onClick={() => onVerifyDocument(doc.id, "Verified")}
-                          className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition flex items-center space-x-1 shadow-sm"
+                          onClick={() => handleApproveDoc(doc)}
+                          disabled={actionLoading}
+                          className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition flex items-center space-x-1 shadow-sm disabled:opacity-50"
                         >
                           <CheckCircle2 className="w-3.5 h-3.5" />
                           <span>Approve</span>
@@ -881,6 +1077,69 @@ export const DriverDetailsPage: React.FC<DriverDetailsPageProps> = ({
           </div>
         </div>
       )}
+
+      {/* Rejection Modal with Reason & Custom Remarks */}
+      {rejectionModalDoc && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+            <h3 className="text-base font-bold text-slate-900 flex items-center space-x-2">
+              <XCircle className="w-5 h-5 text-red-500" />
+              <span>Reject Document</span>
+            </h3>
+            <p className="text-xs text-slate-500">
+              Provide a reason for rejecting <strong className="text-slate-800">{rejectionModalDoc.document_type}</strong>. The driver will be asked to re-upload before they can go online.
+            </p>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-semibold text-slate-700 mb-1 block">Rejection Reason</label>
+                <select
+                  value={rejectionReason}
+                  onChange={(e) => setRejectionReason(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-red-500"
+                >
+                  <option value="Document image is blurry or unreadable">Document image is blurry or unreadable</option>
+                  <option value="Document has expired">Document has expired</option>
+                  <option value="Name / details mismatch vehicle records">Name / details mismatch vehicle records</option>
+                  <option value="Incorrect document uploaded">Incorrect document uploaded</option>
+                  <option value="Both front and back sides required">Both front and back sides required</option>
+                  <option value="Government watermark or signature missing">Government watermark or signature missing</option>
+                  <option value="Other / Custom Reason">Other / Custom Reason</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-700 mb-1 block">Admin Remarks / Specific Instructions (Optional)</label>
+                <textarea
+                  value={customRemarks}
+                  onChange={(e) => setCustomRemarks(e.target.value)}
+                  placeholder="Enter specific remarks for driver (e.g. Please re-upload clear front photo showing valid expiry date)"
+                  rows={3}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:border-red-500 resize-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-2 pt-3">
+              <button
+                onClick={() => setRejectionModalDoc(null)}
+                disabled={actionLoading}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:bg-slate-50 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmReject}
+                disabled={actionLoading}
+                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs transition disabled:opacity-50"
+              >
+                {actionLoading ? 'Rejecting...' : 'Confirm Rejection'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };
