@@ -80,7 +80,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   return (
     <div className="space-y-6">
       {/* Welcome Banner */}
-      <div className="bg-gradient-to-r from-[#0043DC] to-[#1E6BFF] rounded-2xl p-4 sm:p-6 text-white shadow-lg shadow-[#0043DC]/15 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="bg-gradient-to-r from-[#0043DC] to-[#1E6BFF] rounded-2xl p-6 text-white shadow-lg shadow-[#0043DC]/15 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="space-y-1">
           <div className="flex items-center space-x-2">
             <span className="px-2 py-0.5 text-[10px] font-black uppercase bg-white/20 rounded-md">Live Command</span>
@@ -104,7 +104,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       </div>
 
       {/* Metric Cards Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
         {stats.map((s, idx) => {
           const Icon = s.icon;
           return (
@@ -130,7 +130,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       </div>
 
       {/* Quick Dispatch Presets */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm space-y-4">
+      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-base font-black text-slate-900">Instant Quick Dispatch Presets</h3>

@@ -22,7 +22,7 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
-      <div className="px-3 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-1.5 sm:gap-2">
+      <div className="px-4 sm:px-6 md:px-8 h-16 flex items-center justify-between gap-3">
         {/* Title area & Mobile Menu Toggle */}
         <div className="flex items-center space-x-3">
           <button

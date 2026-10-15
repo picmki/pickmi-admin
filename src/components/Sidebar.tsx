@@ -146,7 +146,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Main Sidebar Element */}
       <aside
-        className={`w-72 max-w-[85vw] fixed inset-y-0 left-0 bg-white border-r border-slate-200 flex flex-col justify-between p-4 z-50 shadow-xl md:shadow-sm transition-transform duration-300 ${
+        className={`w-72 max-w-[85vw] md:w-64 fixed inset-y-0 left-0 bg-white border-r border-slate-200 flex flex-col justify-between p-4 z-50 shadow-xl md:shadow-none transition-transform duration-300 ${
           isOpenMobile ? "translate-x-0" : "-translate-x-full md:translate-x-0"
         }`}
       >
@@ -197,86 +197,80 @@ export const Sidebar: React.FC<SidebarProps> = ({
               />
             </button>
 
-            {/* Dropdown Menu */}
+            {/* Expandable Mode Selector (In-flow so it never covers navigation links) */}
             {isDropdownOpen && (
-              <>
-                <div
-                  className="fixed inset-0 z-30"
-                  onClick={() => setIsDropdownOpen(false)}
-                />
-                <div className="absolute left-1 right-1 top-full mt-1.5 z-40 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden py-1 animate-in fade-in zoom-in-95 duration-100">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setManagementMode('driver');
-                      setIsDropdownOpen(false);
-                      if (currentTab === 'customers') {
-                        onSelectTab('overview');
-                      }
-                    }}
-                    className={`w-full flex items-center space-x-2.5 px-3 py-2 text-xs font-bold text-left transition ${
-                      managementMode === 'driver'
-                        ? 'bg-blue-50 text-[#0043DC]'
-                        : 'text-slate-700 hover:bg-slate-50'
-                    }`}
-                  >
-                    <Car className="w-4 h-4 text-[#0043DC] flex-shrink-0" />
-                    <div className="flex-1 truncate">
-                      <div className="text-xs font-bold">Driver Management</div>
-                      <div className="text-[10px] text-slate-400 font-normal">Drivers, Trips & Fleet</div>
-                    </div>
-                    {managementMode === 'driver' && (
-                      <Check className="w-3.5 h-3.5 text-[#0043DC] flex-shrink-0" />
-                    )}
-                  </button>
+              <div className="mt-2 bg-slate-50 border border-slate-200/90 rounded-xl overflow-hidden p-1 space-y-0.5 animate-in fade-in duration-150 shadow-2xs">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setManagementMode('driver');
+                    setIsDropdownOpen(false);
+                    if (currentTab === 'customers') {
+                      onSelectTab('overview');
+                    }
+                  }}
+                  className={`w-full flex items-center space-x-2 px-2.5 py-2 rounded-lg text-xs font-bold text-left transition ${
+                    managementMode === 'driver'
+                      ? 'bg-[#0043DC]/10 text-[#0043DC]'
+                      : 'text-slate-600 hover:bg-white hover:text-slate-900'
+                  }`}
+                >
+                  <Car className="w-4 h-4 text-[#0043DC] shrink-0" />
+                  <div className="flex-1 truncate">
+                    <div className="text-xs font-bold leading-tight">Driver Management</div>
+                    <div className="text-[10px] text-slate-400 font-normal">Drivers, Trips & Fleet</div>
+                  </div>
+                  {managementMode === 'driver' && (
+                    <Check className="w-3.5 h-3.5 text-[#0043DC] shrink-0" />
+                  )}
+                </button>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setManagementMode('customer');
-                      setIsDropdownOpen(false);
-                      onSelectTab('customers');
-                    }}
-                    className={`w-full flex items-center space-x-2.5 px-3 py-2 text-xs font-bold text-left transition ${
-                      managementMode === 'customer'
-                        ? 'bg-blue-50 text-[#0043DC]'
-                        : 'text-slate-700 hover:bg-slate-50'
-                    }`}
-                  >
-                    <Users className="w-4 h-4 text-[#0043DC] flex-shrink-0" />
-                    <div className="flex-1 truncate">
-                      <div className="text-xs font-bold">Customer Management</div>
-                      <div className="text-[10px] text-slate-400 font-normal">Customer List & CRM</div>
-                    </div>
-                    {managementMode === 'customer' && (
-                      <Check className="w-3.5 h-3.5 text-[#0043DC] flex-shrink-0" />
-                    )}
-                  </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setManagementMode('customer');
+                    setIsDropdownOpen(false);
+                    onSelectTab('customers');
+                  }}
+                  className={`w-full flex items-center space-x-2 px-2.5 py-2 rounded-lg text-xs font-bold text-left transition ${
+                    managementMode === 'customer'
+                      ? 'bg-[#0043DC]/10 text-[#0043DC]'
+                      : 'text-slate-600 hover:bg-white hover:text-slate-900'
+                  }`}
+                >
+                  <Users className="w-4 h-4 text-[#0043DC] shrink-0" />
+                  <div className="flex-1 truncate">
+                    <div className="text-xs font-bold leading-tight">Customer Management</div>
+                    <div className="text-[10px] text-slate-400 font-normal">Customer List & CRM</div>
+                  </div>
+                  {managementMode === 'customer' && (
+                    <Check className="w-3.5 h-3.5 text-[#0043DC] shrink-0" />
+                  )}
+                </button>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setManagementMode('website');
-                      setIsDropdownOpen(false);
-                      onSelectTab('website-bookings');
-                    }}
-                    className={`w-full flex items-center space-x-2.5 px-3 py-2 text-xs font-bold text-left transition ${
-                      managementMode === 'website'
-                        ? 'bg-blue-50 text-[#0043DC]'
-                        : 'text-slate-700 hover:bg-slate-50'
-                    }`}
-                  >
-                    <Globe className="w-4 h-4 text-[#0043DC] flex-shrink-0" />
-                    <div className="flex-1 truncate">
-                      <div className="text-xs font-bold">Website Management</div>
-                      <div className="text-[10px] text-slate-400 font-normal">Bookings, Users & Inquiries</div>
-                    </div>
-                    {managementMode === 'website' && (
-                      <Check className="w-3.5 h-3.5 text-[#0043DC] flex-shrink-0" />
-                    )}
-                  </button>
-                </div>
-              </>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setManagementMode('website');
+                    setIsDropdownOpen(false);
+                    onSelectTab('website-bookings');
+                  }}
+                  className={`w-full flex items-center space-x-2 px-2.5 py-2 rounded-lg text-xs font-bold text-left transition ${
+                    managementMode === 'website'
+                      ? 'bg-[#0043DC]/10 text-[#0043DC]'
+                      : 'text-slate-600 hover:bg-white hover:text-slate-900'
+                  }`}
+                >
+                  <Globe className="w-4 h-4 text-[#0043DC] shrink-0" />
+                  <div className="flex-1 truncate">
+                    <div className="text-xs font-bold leading-tight">Website Management</div>
+                    <div className="text-[10px] text-slate-400 font-normal">Bookings, Users & Inquiries</div>
+                  </div>
+                  {managementMode === 'website' && (
+                    <Check className="w-3.5 h-3.5 text-[#0043DC] shrink-0" />
+                  )}
+                </button>
+              </div>
             )}
           </div>
 
@@ -315,17 +309,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </nav>
         </div>
 
-        {/* Mobile Info Footer */}
-        <div className="pt-3 border-t border-slate-100 space-y-2">
-          <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200/60 text-xs">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-slate-700">Mobile Responsive</span>
-              <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                Active
-              </span>
-            </div>
-            <p className="text-[10px] text-slate-400 mt-1">Touch-friendly smartphone view</p>
-          </div>
+        {/* Sidebar Footer */}
+        <div className="pt-3 border-t border-slate-100 flex items-center justify-between px-2 text-[11px] text-slate-400">
+          <span className="flex items-center space-x-1.5">
+            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+            <span className="font-medium text-slate-600">PickMi Fleet v2.0</span>
+          </span>
+          <span className="text-[10px] font-mono font-bold text-slate-400">ONLINE</span>
         </div>
       </aside>
     </>

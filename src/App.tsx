@@ -518,7 +518,7 @@ export default function App() {
         )}
 
         {/* Main Routed Page Content */}
-        <main className="p-3 sm:p-6 md:p-8 flex-1">
+        <main className="p-4 sm:p-6 md:p-8 flex-1">
           {currentTab === 'overview' && (
             <DashboardOverview
               drivers={drivers}
