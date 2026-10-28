@@ -1,6 +1,6 @@
 import { sendRemotePushNotificationToDrivers } from './pushNotifications';
 import { createClient } from '@supabase/supabase-js';
-import type { Driver, DriverDocument, Trip, Vehicle, WebsiteBooking, WebsiteUser, WebsiteDriverApplication, WebsiteContactSubmission } from '../types';
+import type { Driver, DriverDocument, Trip, Vehicle, WebsiteBooking, WebsiteUser, WebsiteDriverApplication, WebsiteContactSubmission, Partner, PartnerTrip, PartnerIncentive, TripStatus } from '../types';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://awwrbgwpzgtbunrvsmyu.supabase.co';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_MVv7fXTjS6R79oXLOHuCLA_ij0lDSRE';
@@ -549,9 +549,21 @@ export async function updateTripSettlement(
 }
 
 export async function deleteTrip(tripId: string): Promise<boolean> {
-  const { error } = await supabase.from("trips").delete().eq("id", tripId);
-  if (error) {
-    console.error("Error deleting trip from Supabase:", error);
+  try {
+    // 1. Delete from trips in Supabase
+    await supabase.from("trips").delete().eq("id", tripId);
+    // 2. Delete from partner_trips in Supabase
+    await supabase.from("partner_trips").delete().eq("id", tripId);
+    // 3. Delete from local partner app backend & db.json
+    try {
+      await fetch(BACKEND_API_BASE + '/trips/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tripId })
+      });
+    } catch (_) {}
+  } catch (error) {
+    console.error("Error deleting trip:", error);
     throw error;
   }
   return true;
@@ -857,5 +869,540 @@ export async function deleteCustomerProfile(phone: string, id?: string) {
     await supabase.from('website_users').delete().eq('mobile', phone);
   } catch (e) {
     console.warn('website_users delete note:', e);
+  }
+}
+
+// ==========================================
+// PARTNER & PARTNER TRIPS MANAGEMENT API (Connected with Live Database & Mobile App)
+// ==========================================
+
+const BACKEND_API_BASE = 'http://localhost:3000/api';
+
+export async function getPartners(): Promise<Partner[]> {
+  // 1. Fetch live partners from backend database
+  try {
+    const res = await fetch(`${BACKEND_API_BASE}/partners`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && Array.isArray(data.partners)) {
+        return data.partners.map((p: any) => ({
+          id: p.id,
+          name: p.name || p.travel_name || "Fleet Partner",
+          contact_person: p.contact_person || p.contact_person_name || "Contact Person",
+          mobile: p.mobile || p.mobile_number || "",
+          email: p.email || "",
+          city: p.city || p.location || "Bengaluru",
+          fleet_size: p.fleet_size || p.vehicle_count || 5,
+          status: (p.status || "ACTIVE").toUpperCase() === "APPROVED" ? "ACTIVE" : (p.status || "ACTIVE").toUpperCase(),
+          rating: p.rating || 5.0,
+          commission_rate: p.commission_rate ?? 12,
+          payout_upi_id: p.payout_upi_id || (p.payout ? p.payout.upi_id : ""),
+          bank_account_number: p.bank_account_number || "",
+          bank_ifsc: p.bank_ifsc || "",
+          total_trips: p.total_trips || (p.trip_stats ? (p.trip_stats.completed_trips || 0) + (p.trip_stats.active_trips || 0) : 0),
+          total_revenue: p.total_revenue || (p.trip_stats ? p.trip_stats.lifetime_earnings || 0 : 0),
+          incentive_earned: p.incentive_earned ?? 0,
+          incentive_paid: p.incentive_paid ?? 0,
+          incentive_pending: p.incentive_pending ?? 0,
+          incentive_target_trips: p.incentive_target_trips ?? 10,
+          incentive_reward_amount: p.incentive_reward_amount ?? 1000,
+          incentive_plan: p.incentive_plan || undefined,
+          current_cycle_trips: p.current_cycle_trips ?? p.total_trips ?? 0,
+          created_at: p.created_at || new Date().toISOString(),
+          updated_at: p.updated_at || new Date().toISOString(),
+        }));
+      }
+    }
+  } catch (err: any) {
+    console.warn("getPartners local api fallback note:", err?.message);
+  }
+
+  // 2. Supabase Cloud Fallback
+  try {
+    const { data, error } = await supabase
+      .from("partners")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (!error && data && data.length > 0) {
+      return (data || []) as Partner[];
+    }
+  } catch (err: any) {
+    console.warn("getPartners error:", err?.message);
+  }
+
+  return [];
+}
+
+export async function createPartner(payload: Partial<Partner>): Promise<Partner> {
+  const newPartner: Partner = {
+    id: payload.id || "ptn_" + Math.random().toString(36).substring(2, 9),
+    name: payload.name || "Fleet Partner",
+    contact_person: payload.contact_person || "Contact Person",
+    mobile: payload.mobile || "",
+    email: payload.email || "",
+    city: payload.city || "Bengaluru",
+    fleet_size: payload.fleet_size || 5,
+    status: payload.status || "ACTIVE",
+    rating: payload.rating || 5.0,
+    commission_rate: payload.commission_rate ?? 12,
+    payout_upi_id: payload.payout_upi_id || "",
+    bank_account_number: payload.bank_account_number || "",
+    bank_ifsc: payload.bank_ifsc || "",
+    total_trips: 0,
+    total_revenue: 0,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  try {
+    await fetch(`${BACKEND_API_BASE}/partners`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...newPartner,
+        travel_name: newPartner.name,
+        contact_person_name: newPartner.contact_person,
+        mobile_number: newPartner.mobile,
+        location: newPartner.city,
+        vehicle_count: newPartner.fleet_size,
+        status: newPartner.status === "ACTIVE" ? "approved" : newPartner.status.toLowerCase(),
+      }),
+    });
+  } catch (e) {
+    console.warn("createPartner backend note:", e);
+  }
+
+  try {
+    await supabase.from("partners").insert([newPartner]);
+  } catch (e) {}
+
+  return newPartner;
+}
+
+export async function updatePartner(partner: Partial<Partner> & { id: string }): Promise<void> {
+  try {
+    await fetch(`${BACKEND_API_BASE}/partners`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: partner.id,
+        travel_name: partner.name,
+        contact_person_name: partner.contact_person,
+        mobile_number: partner.mobile,
+        location: partner.city,
+        vehicle_count: partner.fleet_size,
+        status: partner.status ? (partner.status === "ACTIVE" ? "approved" : partner.status.toLowerCase()) : undefined,
+        incentive_target_trips: partner.incentive_target_trips,
+        incentive_reward_amount: partner.incentive_reward_amount,
+        incentive_plan: partner.incentive_plan,
+        current_cycle_trips: partner.current_cycle_trips,
+      }),
+    });
+  } catch (e) {
+    console.warn("updatePartner backend note:", e);
+  }
+
+  try {
+    await supabase
+      .from("partners")
+      .update({
+        ...partner,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", partner.id);
+  } catch (e) {
+    console.warn("updatePartner note:", e);
+  }
+}
+
+export async function updatePartnerStatus(
+  partnerId: string,
+  status: "ACTIVE" | "PENDING" | "SUSPENDED"
+): Promise<void> {
+  try {
+    const mapped = status.toLowerCase() === "active" ? "approved" : status.toLowerCase();
+    await fetch(`${BACKEND_API_BASE}/admin/change-status`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ partner_id: partnerId, status: mapped }),
+    });
+  } catch (e) {
+    console.warn("updatePartnerStatus note:", e);
+  }
+
+  try {
+    await supabase
+      .from("partners")
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq("id", partnerId);
+  } catch (e) {
+    console.warn("updatePartnerStatus note:", e);
+  }
+}
+
+export async function getPartnerTrips(): Promise<PartnerTrip[]> {
+  // 1. Fetch live trips from backend database
+  try {
+    const res = await fetch(`${BACKEND_API_BASE}/trips`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && Array.isArray(data.trips)) {
+        const partnerTripsOnly = data.trips.filter((t: any) => (t.partner_id && t.partner_id !== "ptn_mvj95a6a") || (t.partnerId && t.partnerId !== "ptn_mvj95a6a"));
+        return partnerTripsOnly.map((t: any) => ({
+          id: t.id,
+          trip_number: t.trip_number || `PT-${t.id.slice(-6)}`,
+          partner_id: t.partner_id || t.partnerId,
+          partner_name: t.partner_travel_name || t.partner_name || "Partner Fleet",
+          customer_name: t.customer_name || "Customer",
+          customer_phone: t.customer_phone || t.customer_mobile || "",
+          pickup_location: t.pickup_location || "",
+          drop_location: t.drop_location || "",
+          pickup_date: t.pickup_date || t.trip_date || "Today",
+          pickup_time: t.pickup_time || t.trip_time || "Now",
+          trip_type: (t.trip_type || "One-way") as any,
+          vehicle_type: (t.vehicle_type || "Sedan") as any,
+          fare: Number(t.fare || t.total_fare || 1000),
+          driver_payout: Number(t.driver_payout || Math.round((t.fare || 1000) * 0.85)),
+          commission_amount: Number(t.commission_amount || Math.round((t.fare || 1000) * 0.15)),
+          status: (t.status === "driver_assigned" ? "ASSIGNED" : (t.status === "pending_review" ? "PENDING_REVIEW" : (t.status || "AVAILABLE").toUpperCase())) as TripStatus,
+          assigned_driver_id: t.assigned_driver_id || (t.driver ? t.driver.id : null),
+          driver: t.driver ? {
+            id: t.driver.id,
+            name: t.driver.name,
+            mobile: t.driver.mobile,
+            rating: t.driver.rating || 4.9,
+            online_status: "ONLINE",
+            vehicle: {
+              vehicle_number: t.driver.vehicle_number || "KA-01-MJ-5520",
+              vehicle_type: t.vehicle_type || "Sedan",
+              vehicle_model: t.driver.vehicle_model || "Maruti Suzuki Dzire",
+            }
+          } : undefined,
+          notes: t.notes || (t.created_method === "voice" ? "Created via AI Voice Recording" : "Created via Partner Mobile App"),
+          created_method: (t.created_method || (t.notes?.toLowerCase().includes("voice") ? "voice" : "manual")) as "manual" | "voice",
+          audio_url: t.audio_url || null,
+          audio_base64: t.audio_base64 || (typeof t.audio_url === "string" && t.audio_url.startsWith("data:audio/") ? t.audio_url : null),
+          audio_duration: t.audio_duration ? Number(t.audio_duration) : (t.created_method === "voice" ? 6 : undefined),
+          created_at: t.created_at || new Date().toISOString(),
+          updated_at: t.updated_at || new Date().toISOString(),
+        }));
+      }
+    }
+  } catch (err: any) {
+    console.warn("getPartnerTrips local API note:", err?.message);
+  }
+
+  // 2. Supabase Fallback
+  try {
+    const { data, error } = await supabase
+      .from("partner_trips")
+      .select(`
+        *,
+        driver:drivers(id, name, mobile, rating, online_status, vehicle:vehicles(vehicle_number, vehicle_type, vehicle_model))
+      `)
+      .order("created_at", { ascending: false });
+
+    if (!error && data && data.length > 0) {
+      return ((data as any[]) || []).map((t) => ({
+        ...t,
+        driver: Array.isArray(t.driver) ? t.driver[0] : t.driver,
+      }));
+    }
+  } catch (err: any) {
+    console.warn("getPartnerTrips error:", err?.message);
+  }
+
+  return [];
+}
+
+export async function createPartnerTrip(payload: Partial<PartnerTrip>): Promise<PartnerTrip> {
+  const newTrip: PartnerTrip = {
+    id: payload.id || "pt_" + Math.random().toString(36).substring(2, 9),
+    trip_number: payload.trip_number || "PT-" + Math.floor(100000 + Math.random() * 900000),
+    partner_id: payload.partner_id || "",
+    partner_name: payload.partner_name || "Partner Fleet",
+    customer_name: payload.customer_name || "Customer",
+    customer_phone: payload.customer_phone || "",
+    pickup_location: payload.pickup_location || "",
+    drop_location: payload.drop_location || "",
+    pickup_date: payload.pickup_date || "Today",
+    pickup_time: payload.pickup_time || "Now",
+    trip_type: payload.trip_type || "One-way",
+    vehicle_type: payload.vehicle_type || "Sedan",
+    fare: payload.fare || 1000,
+    driver_payout: payload.driver_payout || Math.round((payload.fare || 1000) * 0.85),
+    commission_amount: payload.commission_amount || Math.round((payload.fare || 1000) * 0.15),
+    status: (payload.status as TripStatus) || "AVAILABLE",
+    assigned_driver_id: payload.assigned_driver_id || null,
+    notes: payload.notes || "",
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  try {
+    await fetch(`${BACKEND_API_BASE}/trips/publish`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...newTrip,
+        pickup_date: newTrip.pickup_date,
+        pickup_time: newTrip.pickup_time,
+        total_fare: newTrip.fare,
+        created_method: "manual"
+      }),
+    });
+  } catch (e) {
+    console.warn("createPartnerTrip backend note:", e);
+  }
+
+  try {
+    await supabase.from("partner_trips").insert([newTrip]);
+  } catch (e) {}
+
+  return newTrip;
+}
+
+export async function assignDriverToPartnerTrip(
+  tripId: string,
+  driverId: string
+): Promise<void> {
+  try {
+    await fetch(`${BACKEND_API_BASE}/trips/assign-driver`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tripId, driverId }),
+    });
+  } catch (e) {
+    console.warn("assignDriverToPartnerTrip backend note:", e);
+  }
+
+  try {
+    await supabase
+      .from("partner_trips")
+      .update({
+        status: "ASSIGNED",
+        assigned_driver_id: driverId,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", tripId);
+  } catch (e) {
+    console.warn("assignDriverToPartnerTrip note:", e);
+  }
+}
+
+export async function updatePartnerTripStatus(
+  tripId: string,
+  status: TripStatus,
+  driverId?: string | null
+): Promise<void> {
+  try {
+    if (status === "ASSIGNED" && driverId) {
+      await fetch(`${BACKEND_API_BASE}/trips/assign-driver`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tripId, driverId }),
+      });
+    } else {
+      const backendStatus =
+        status === "AVAILABLE"
+          ? "available"
+          : status === "PENDING_REVIEW"
+          ? "pending_review"
+          : status.toLowerCase();
+
+      await fetch(`${BACKEND_API_BASE}/trips/update-status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tripId, status: backendStatus }),
+      });
+    }
+  } catch (e) {
+    console.warn("updatePartnerTripStatus backend note:", e);
+  }
+
+  try {
+    const payload: any = { status, updated_at: new Date().toISOString() };
+    if (driverId !== undefined) {
+      payload.assigned_driver_id = driverId;
+    }
+    await supabase.from("partner_trips").update(payload).eq("id", tripId);
+  } catch (e) {
+    console.warn("updatePartnerTripStatus note:", e);
+  }
+}
+
+export async function updatePartnerTripDetails(
+  tripId: string,
+  updates: Partial<PartnerTrip>
+): Promise<void> {
+  try {
+    const payload: any = { ...updates, updated_at: new Date().toISOString() };
+    delete payload.driver;
+    delete payload.id;
+    await supabase.from("partner_trips").update(payload).eq("id", tripId);
+  } catch (e) {
+    console.warn("updatePartnerTripDetails note:", e);
+  }
+}
+
+export async function deletePartnerTrip(tripId: string): Promise<boolean> {
+  try {
+    // 1. Delete from partner_trips in Supabase
+    await supabase.from("partner_trips").delete().eq("id", tripId);
+    // 2. Delete from trips table in Supabase
+    await supabase.from("trips").delete().eq("id", tripId);
+    // 3. Delete from local partner app backend & db.json
+    try {
+      await fetch(BACKEND_API_BASE + '/trips/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tripId })
+      });
+    } catch (_) {}
+  } catch (e) {
+    console.warn("deletePartnerTrip error:", e);
+  }
+  return true;
+}
+
+export async function getPartnerIncentives(): Promise<PartnerIncentive[]> {
+  const list: PartnerIncentive[] = [];
+  try {
+    const res = await fetch("http://localhost:3000/api/financial/payout-requests");
+    const json = await res.json();
+    if (json && json.success && Array.isArray(json.requests)) {
+      json.requests.forEach((r: any) => {
+        list.push({
+          id: r.id,
+          partner_id: r.partner_id,
+          partner_name: r.partner_name || "Partner Fleet",
+          amount: Number(r.amount || 0),
+          type: "MILESTONE_TARGET",
+          title: r.stage_title || `Stage ${r.stage}`,
+          description: `Milestone Claim: ${r.completed_trips || r.target_trips}/${r.target_trips} trips completed`,
+          status: r.status === "COMPLETED" ? "PAID" : r.status,
+          paid_at: r.completed_at || r.paid_at || null,
+          approved_at: r.approved_at || null,
+          payout_reference: r.payout_reference || null,
+          payment_method: r.payment_method || "Bank Transfer",
+          created_at: r.requested_at || new Date().toISOString(),
+          stage: r.stage,
+          target_trips: r.target_trips,
+          completed_trips: r.completed_trips
+        });
+      });
+    }
+  } catch (err) {
+    console.warn("Backend payout-requests fetch note:", err);
+  }
+
+  try {
+    const { data } = await supabase
+      .from("partner_incentives")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (data && data.length > 0) {
+      const existingIds = new Set(list.map(i => i.id));
+      data.forEach((d: any) => {
+        if (!existingIds.has(d.id)) {
+          list.push(d as PartnerIncentive);
+        }
+      });
+    }
+  } catch (err: any) {
+    console.warn("getPartnerIncentives error:", err?.message);
+  }
+  return list;
+}
+
+export async function approvePartnerIncentive(
+  incentiveId: string,
+  notes?: string
+): Promise<void> {
+  try {
+    await fetch("http://localhost:3000/api/financial/payout-requests/approve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requestId: incentiveId, notes })
+    });
+  } catch (e) {
+    console.warn("approvePartnerIncentive backend error:", e);
+  }
+
+  try {
+    await supabase
+      .from("partner_incentives")
+      .update({
+        status: "APPROVED",
+        approved_at: new Date().toISOString(),
+      })
+      .eq("id", incentiveId);
+  } catch (e) {
+    console.warn("approvePartnerIncentive note:", e);
+  }
+}
+
+export async function createPartnerIncentive(
+  payload: Partial<PartnerIncentive>
+): Promise<PartnerIncentive> {
+  const newInc: PartnerIncentive = {
+    id: payload.id || "inc_" + Math.random().toString(36).substring(2, 9),
+    partner_id: payload.partner_id || "",
+    partner_name: payload.partner_name || "Partner Fleet",
+    amount: payload.amount || 0,
+    type: payload.type || "MILESTONE_TARGET",
+    title: payload.title || "Fleet Incentive",
+    description: payload.description || "",
+    status: payload.status || "PENDING",
+    paid_at: payload.status === "PAID" ? new Date().toISOString() : null,
+    payout_reference: payload.payout_reference || null,
+    payment_method: payload.payment_method || "UPI",
+    created_at: new Date().toISOString(),
+  };
+
+  try {
+    const { data, error } = await supabase
+      .from("partner_incentives")
+      .insert([newInc])
+      .select()
+      .single();
+
+    if (!error && data) return data as PartnerIncentive;
+  } catch (e) {
+    console.warn("createPartnerIncentive note:", e);
+  }
+
+  return newInc;
+}
+
+export async function payPartnerIncentive(
+  incentiveId: string,
+  reference: string,
+  paymentMethod?: string
+): Promise<void> {
+  try {
+    await fetch("http://localhost:3000/api/financial/payout-requests/complete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requestId: incentiveId, reference, paymentMethod })
+    });
+  } catch (e) {
+    console.warn("payPartnerIncentive backend error:", e);
+  }
+
+  try {
+    await supabase
+      .from("partner_incentives")
+      .update({
+        status: "PAID",
+        paid_at: new Date().toISOString(),
+        payout_reference: reference,
+        ...(paymentMethod ? { payment_method: paymentMethod } : {}),
+      })
+      .eq("id", incentiveId);
+  } catch (e) {
+    console.warn("payPartnerIncentive note:", e);
   }
 }

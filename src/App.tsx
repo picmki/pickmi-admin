@@ -17,6 +17,9 @@ import { CustomersManager } from './components/CustomersManager';
 import { BillingManager } from './components/BillingManager';
 import { DriverWalletsManager } from './components/DriverWalletsManager';
 import { WebsiteManager } from './components/WebsiteManager';
+import { PartnersManager } from './components/PartnersManager';
+import { PartnerDetailsPage } from './components/PartnerDetailsPage';
+import { INITIAL_MOCK_DRIVERS, INITIAL_MOCK_TRIPS, INITIAL_MOCK_DOCUMENTS, INITIAL_MOCK_PARTNERS, INITIAL_MOCK_PARTNER_TRIPS, INITIAL_MOCK_PARTNER_INCENTIVES } from './mockData';
 import {
   supabase,
   checkDatabaseConnection,
@@ -44,12 +47,65 @@ import {
   updateWebsiteContactStatus,
   updateCustomerProfile,
   deleteCustomerProfile,
+  getPartners,
+  createPartner,
+  updatePartner,
+  updatePartnerStatus,
+  getPartnerTrips,
+  createPartnerTrip,
+  assignDriverToPartnerTrip,
+  updatePartnerTripStatus,
+  updatePartnerTripDetails,
+  deletePartnerTrip,
+  getPartnerIncentives,
+  createPartnerIncentive,
+  payPartnerIncentive,
+  approvePartnerIncentive,
 } from './lib/supabase';
-import type { Driver, DriverDocument, Trip, TripStatus, NavTab, WebsiteBooking, WebsiteUser, WebsiteDriverApplication, WebsiteContactSubmission } from './types';
+import type { Driver, DriverDocument, Trip, TripStatus, NavTab, WebsiteBooking, WebsiteUser, WebsiteDriverApplication, WebsiteContactSubmission, Partner, PartnerTrip, PartnerIncentive, PartnerIncentivePlan } from './types';
 import { AlertCircle, Menu, LayoutDashboard, Navigation, MapPin, Users } from 'lucide-react';
 
+const VALID_TABS: NavTab[] = [
+  'overview',
+  'live-drivers',
+  'trips',
+  'create-trip',
+  'billing',
+  'driver-wallets',
+  'drivers',
+  'documents',
+  'deposits',
+  'partners',
+  'partner-trips',
+  'partner-incentives',
+  'partner-details',
+  'driver-details',
+  'customers',
+  'customer-details',
+  'website-bookings',
+  'website-book-cab',
+  'website-users',
+  'website-applications',
+  'website-inquiries',
+  'website-pricing-rules',
+];
+
 export default function App() {
-  const [currentTab, setCurrentTab] = useState<NavTab>('overview');
+  const [currentTab, setCurrentTab] = useState<NavTab>(() => {
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash.replace(/^#/, '').trim() as NavTab;
+      if (hash && VALID_TABS.includes(hash)) {
+        return hash;
+      }
+      try {
+        const saved = localStorage.getItem('pickmi_admin_active_tab') as NavTab;
+        if (saved && VALID_TABS.includes(saved)) {
+          return saved;
+        }
+      } catch {}
+    }
+    return 'overview';
+  });
   const [drivers, setDrivers] = useState<Driver[]>(() => {
     try {
       const cached = localStorage.getItem('pickmi_cached_drivers');
@@ -78,8 +134,73 @@ export default function App() {
   const [websiteUsers, setWebsiteUsers] = useState<WebsiteUser[]>([]);
   const [driverApplications, setDriverApplications] = useState<WebsiteDriverApplication[]>([]);
   const [contactSubmissions, setContactSubmissions] = useState<WebsiteContactSubmission[]>([]);
-  const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
-  const [selectedCustomer, setSelectedCustomer] = useState<CustomerDetailRecord | null>(null);
+  const [partners, setPartners] = useState<Partner[]>(() => {
+    try {
+      const cached = localStorage.getItem("pickmi_cached_partners");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        const real = Array.isArray(parsed) ? parsed.filter((p: any) => p && p.id && !p.id.startsWith("part_00") && p.id !== "ptn_mvj95a6a") : [];
+        return real;
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  });
+  const [partnerIncentives, setPartnerIncentives] = useState<PartnerIncentive[]>(() => {
+    try {
+      const cached = localStorage.getItem("pickmi_cached_partner_incentives");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        const real = Array.isArray(parsed) ? parsed.filter((i: any) => i && i.id && !i.id.startsWith("inc_00")) : [];
+        return real;
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  });
+  const [partnerTrips, setPartnerTrips] = useState<PartnerTrip[]>(() => {
+    try {
+      const cached = localStorage.getItem("pickmi_cached_partner_trips");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        const real = Array.isArray(parsed) ? parsed.filter((t: any) => t && t.id && !t.id.startsWith("pt_00") && t.partner_id !== "ptn_mvj95a6a") : [];
+        return real;
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  });
+  const [selectedPartner, setSelectedPartner] = useState<Partner | null>(() => {
+    try {
+      const cached = localStorage.getItem("pickmi_cached_partners");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        const real = Array.isArray(parsed) ? parsed.filter((p: any) => p && p.id && !p.id.startsWith("part_00") && p.id !== "ptn_mvj95a6a") : [];
+        if (real.length > 0) return real[0];
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  });
+  const [selectedDriverId, setSelectedDriverId] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('pickmi_admin_selected_driver_id') || null;
+    } catch {
+      return null;
+    }
+  });
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerDetailRecord | null>(() => {
+    try {
+      const saved = localStorage.getItem('pickmi_admin_selected_customer');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
   const [customerBackTab, setCustomerBackTab] = useState<NavTab>('website-users');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(() => localStorage.getItem('pickmi_admin_authenticated') === 'true');
@@ -126,7 +247,13 @@ export default function App() {
         if (liveDrivers && liveDrivers.length > 0) {
           setDrivers(liveDrivers);
           try {
-            localStorage.setItem('pickmi_cached_drivers', JSON.stringify(liveDrivers));
+            // Strip heavy base64 profile_image so browser localStorage quota (5MB) is never exceeded
+            const lightDrivers = liveDrivers.map((d: any) => ({
+              ...d,
+              profile_image: d.profile_image && d.profile_image.length > 500 ? '' : d.profile_image,
+              documents: []
+            }));
+            localStorage.setItem('pickmi_cached_drivers', JSON.stringify(lightDrivers));
           } catch {}
         }
         return liveDrivers;
@@ -141,6 +268,68 @@ export default function App() {
     getWebsiteUsers().then(setWebsiteUsers).catch(() => {});
     getWebsiteDriverApplications().then(setDriverApplications).catch(() => {});
     getWebsiteContactSubmissions().then(setContactSubmissions).catch(() => {});
+
+    // 4b. Load Partners & Partner Trips
+    // Clear stale deleted partner from local storage cache
+    try {
+      const cachedP = localStorage.getItem("pickmi_cached_partners");
+      if (cachedP && (cachedP.includes("ptn_mvj95a6a") || cachedP.includes("part_00"))) {
+        localStorage.removeItem("pickmi_cached_partners");
+        localStorage.removeItem("pickmi_cached_partner_trips");
+        localStorage.removeItem("pickmi_cached_partner_incentives");
+      }
+    } catch {}
+
+    getPartners()
+      .then((livePartners) => {
+        const valid = Array.isArray(livePartners) ? livePartners.filter((p: any) => p && p.id !== "ptn_mvj95a6a") : [];
+        setPartners(valid);
+        if (valid.length > 0) {
+          setSelectedPartner((prev) => {
+            if (!prev || (prev.id && (prev.id.startsWith("part_00") || prev.id === "ptn_mvj95a6a"))) return valid[0];
+            const found = valid.find((p) => p.id === prev.id);
+            return found || valid[0];
+          });
+          try {
+            localStorage.setItem("pickmi_cached_partners", JSON.stringify(valid));
+          } catch {}
+        } else {
+          setSelectedPartner(null);
+          try {
+            localStorage.removeItem("pickmi_cached_partners");
+          } catch {}
+        }
+      })
+      .catch(() => {});
+
+    getPartnerIncentives()
+      .then((liveIncentives) => {
+        const valid = Array.isArray(liveIncentives) ? liveIncentives : [];
+        setPartnerIncentives(valid);
+        try {
+          if (valid.length > 0) {
+            localStorage.setItem("pickmi_cached_partner_incentives", JSON.stringify(valid));
+          } else {
+            localStorage.removeItem("pickmi_cached_partner_incentives");
+          }
+        } catch {}
+      })
+      .catch(() => {});
+
+    getPartnerTrips()
+      .then((liveTrips) => {
+        const valid = Array.isArray(liveTrips) ? liveTrips.filter((t: any) => t && t.partner_id && t.partner_id !== "ptn_mvj95a6a") : [];
+        setPartnerTrips(valid);
+        try {
+          if (valid.length > 0) {
+            localStorage.setItem("pickmi_cached_partner_trips", JSON.stringify(valid));
+          } else {
+            localStorage.removeItem("pickmi_cached_partner_trips");
+          }
+        } catch {}
+      })
+      .catch(() => {});
+
 
     // 5. Load Pending Documents in background
     const docsPromise = getPendingDocuments()
@@ -159,7 +348,6 @@ export default function App() {
     Promise.allSettled([tripsPromise, driversPromise, docsPromise]).then(async ([tRes, dRes]) => {
       const liveDriversLoaded = dRes.status === 'fulfilled' && dRes.value && dRes.value.length > 0;
       if (!liveDriversLoaded && drivers.length === 0) {
-        const { INITIAL_MOCK_DRIVERS, INITIAL_MOCK_TRIPS, INITIAL_MOCK_DOCUMENTS } = await import('./mockData');
         setDrivers(INITIAL_MOCK_DRIVERS);
         setTrips(INITIAL_MOCK_TRIPS);
         setDocuments(INITIAL_MOCK_DOCUMENTS);
@@ -221,6 +409,261 @@ export default function App() {
         return t;
       })
     );
+  };
+
+
+  const handleAssignDriverToPartnerTrip = async (tripId: string, driverId: string) => {
+    await assignDriverToPartnerTrip(tripId, driverId);
+    setPartnerTrips((prev) => {
+      const updated = prev.map((t) =>
+        t.id === tripId
+          ? {
+              ...t,
+              status: "ASSIGNED" as TripStatus,
+              assigned_driver_id: driverId,
+              driver: drivers.find((d) => d.id === driverId) || t.driver,
+            }
+          : t
+      );
+      try {
+        localStorage.setItem("pickmi_cached_partner_trips", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
+
+  const handleUnassignDriverFromPartnerTrip = async (tripId: string) => {
+    await updatePartnerTripStatus(tripId, "AVAILABLE", null);
+    setPartnerTrips((prev) => {
+      const updated = prev.map((t) =>
+        t.id === tripId
+          ? {
+              ...t,
+              status: "AVAILABLE" as TripStatus,
+              assigned_driver_id: null,
+              driver: undefined,
+            }
+          : t
+      );
+      try {
+        localStorage.setItem("pickmi_cached_partner_trips", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
+
+  const handleUpdatePartnerTripStatus = async (
+    tripId: string,
+    status: TripStatus,
+    driverId?: string | null
+  ) => {
+    await updatePartnerTripStatus(tripId, status, driverId);
+    setPartnerTrips((prev) => {
+      const updated = prev.map((t) =>
+        t.id === tripId
+          ? {
+              ...t,
+              status,
+              ...(driverId !== undefined ? { assigned_driver_id: driverId } : {}),
+            }
+          : t
+      );
+      try {
+        localStorage.setItem("pickmi_cached_partner_trips", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
+
+  const handleCreatePartnerTrip = async (tripData: Partial<PartnerTrip>) => {
+    const created = await createPartnerTrip(tripData);
+    setPartnerTrips((prev) => {
+      const updated = [created, ...prev];
+      try {
+        localStorage.setItem("pickmi_cached_partner_trips", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
+
+  const handleUpdatePartnerTrip = async (tripId: string, tripData: Partial<PartnerTrip>) => {
+    await updatePartnerTripDetails(tripId, tripData);
+    setPartnerTrips((prev) => {
+      const updated = prev.map((t) =>
+        t.id === tripId
+          ? {
+              ...t,
+              ...tripData,
+              updated_at: new Date().toISOString(),
+            }
+          : t
+      );
+      try {
+        localStorage.setItem("pickmi_cached_partner_trips", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
+
+  const handleDeletePartnerTrip = async (tripId: string) => {
+    await deletePartnerTrip(tripId);
+    setPartnerTrips((prev) => {
+      const updated = prev.filter((t) => t.id !== tripId);
+      try {
+        localStorage.setItem("pickmi_cached_partner_trips", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
+
+  const handleCreatePartner = async (partnerData: Partial<Partner>) => {
+    const created = await createPartner(partnerData);
+    setPartners((prev) => {
+      const updated = [created, ...prev];
+      try {
+        localStorage.setItem("pickmi_cached_partners", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
+
+  const handleUpdatePartner = async (partnerData: Partial<Partner> & { id: string }) => {
+    await updatePartner(partnerData);
+    setPartners((prev) => {
+      const updated = prev.map((p) => (p.id === partnerData.id ? { ...p, ...partnerData } : p));
+      try {
+        localStorage.setItem("pickmi_cached_partners", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
+
+  const handleSaveIncentivePlan = async (
+    partnerIds: string[],
+    plan: PartnerIncentivePlan,
+    targetTrips: number,
+    rewardAmount: number
+  ) => {
+    for (const pId of partnerIds) {
+      await handleUpdatePartner({
+        id: pId,
+        incentive_target_trips: targetTrips,
+        incentive_reward_amount: rewardAmount,
+        incentive_plan: plan,
+      });
+    }
+  };
+
+
+  const handleAwardIncentive = async (incentiveData: Partial<PartnerIncentive>) => {
+    const created = await createPartnerIncentive(incentiveData);
+    setPartnerIncentives((prev) => {
+      const updated = [created, ...prev];
+      try {
+        localStorage.setItem("pickmi_cached_partner_incentives", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+
+    setPartners((prev) => {
+      const updated = prev.map((p) => {
+        if (p.id === created.partner_id) {
+          const amt = created.amount || 0;
+          return {
+            ...p,
+            incentive_earned: (p.incentive_earned || 0) + amt,
+            ...(created.status === "PAID"
+              ? { incentive_paid: (p.incentive_paid || 0) + amt }
+              : { incentive_pending: (p.incentive_pending || 0) + amt }),
+          };
+        }
+        return p;
+      });
+      try {
+        localStorage.setItem("pickmi_cached_partners", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
+
+  const handleApproveIncentive = async (incentiveId: string, notes?: string) => {
+    await approvePartnerIncentive(incentiveId, notes);
+    setPartnerIncentives((prev) => {
+      const updated = prev.map((i) => {
+        if (i.id === incentiveId) {
+          return {
+            ...i,
+            status: "APPROVED" as const,
+            approved_at: new Date().toISOString(),
+          };
+        }
+        return i;
+      });
+      try {
+        localStorage.setItem("pickmi_cached_partner_incentives", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
+
+  const handlePayIncentive = async (incentiveId: string, reference: string, paymentMethod?: string) => {
+    await payPartnerIncentive(incentiveId, reference, paymentMethod);
+    let targetPartnerId = "";
+    let targetAmount = 0;
+
+    setPartnerIncentives((prev) => {
+      const updated = prev.map((i) => {
+        if (i.id === incentiveId) {
+          targetPartnerId = i.partner_id;
+          targetAmount = i.amount;
+          return {
+            ...i,
+            status: "PAID" as const,
+            paid_at: new Date().toISOString(),
+            payout_reference: reference,
+            ...(paymentMethod ? { payment_method: paymentMethod } : {}),
+          };
+        }
+        return i;
+      });
+      try {
+        localStorage.setItem("pickmi_cached_partner_incentives", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+
+    if (targetPartnerId && targetAmount > 0) {
+      setPartners((prev) => {
+        const updated = prev.map((p) => {
+          if (p.id === targetPartnerId) {
+            return {
+              ...p,
+              incentive_paid: (p.incentive_paid || 0) + targetAmount,
+              incentive_pending: Math.max(0, (p.incentive_pending || 0) - targetAmount),
+            };
+          }
+          return p;
+        });
+        try {
+          localStorage.setItem("pickmi_cached_partners", JSON.stringify(updated));
+        } catch {}
+        return updated;
+      });
+    }
+  };
+
+  const handleUpdatePartnerStatus = async (
+    partnerId: string,
+    status: "ACTIVE" | "PENDING" | "SUSPENDED"
+  ) => {
+    await updatePartnerStatus(partnerId, status);
+    setPartners((prev) => {
+      const updated = prev.map((p) => (p.id === partnerId ? { ...p, status } : p));
+      try {
+        localStorage.setItem("pickmi_cached_partners", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
   };
 
   const handleAssignDriver = async (tripId: string, driverId: string) => {
@@ -552,6 +995,46 @@ export default function App() {
             />
           )}
 
+          {(currentTab === "partners" || currentTab === "partner-trips" || currentTab === "partner-incentives") && (
+            <PartnersManager
+              partners={partners}
+              partnerTrips={partnerTrips}
+              partnerIncentives={partnerIncentives}
+              drivers={drivers}
+              activeSubTab={
+                currentTab === "partner-trips"
+                  ? "partner-trips"
+                  : currentTab === "partner-incentives"
+                  ? "partner-incentives"
+                  : "partners"
+              }
+              onSelectSubTab={(tab) => setCurrentTab(tab)}
+              onRefresh={loadDatabase}
+              onAssignDriver={handleAssignDriverToPartnerTrip}
+              onUnassignDriver={handleUnassignDriverFromPartnerTrip}
+              onUpdateTripStatus={handleUpdatePartnerTripStatus}
+              onCreatePartnerTrip={handleCreatePartnerTrip}
+              onUpdatePartnerTrip={handleUpdatePartnerTrip}
+              onDeletePartnerTrip={handleDeletePartnerTrip}
+              onCreatePartner={handleCreatePartner}
+              onUpdatePartner={handleUpdatePartner}
+              onUpdatePartnerStatus={handleUpdatePartnerStatus}
+              onSaveIncentivePlan={handleSaveIncentivePlan}
+              onAwardIncentive={handleAwardIncentive}
+              onApproveIncentive={handleApproveIncentive}
+              onPayIncentive={handlePayIncentive}
+              onViewDriverDetails={(driverId) => {
+                setSelectedDriverId(driverId);
+                setCurrentTab("driver-details");
+              }}
+              onViewPartnerDetails={(partner) => {
+                setSelectedPartner(partner);
+                setCurrentTab("partner-details");
+              }}
+            />
+          )}
+
+
           {currentTab === 'trips' && (
             <TripsManager
               trips={trips}
@@ -608,20 +1091,78 @@ export default function App() {
             />
           )}
 
-          {currentTab === 'driver-details' && (
-            <DriverDetailsPage
-              driver={drivers.find((d) => d.id === selectedDriverId) || drivers[0]}
-              trips={trips}
-              onBack={() => setCurrentTab('drivers')}
-              onToggleOnline={handleToggleOnline}
-              onToggleDeposit={handleToggleDeposit}
-              onUpdateDriverStatus={handleUpdateDriverStatus}
-              onVerifyDocument={handleVerifyDocument}
-              onVerifyAllDocuments={handleVerifyAllDocuments}
-              onAssignTrip={(driverId) => {
-                setCurrentTab('create-trip');
+          
+          {currentTab === 'partner-details' && (
+            <PartnerDetailsPage
+              partner={
+                (selectedPartner && partners.find((p) => p.id === selectedPartner.id)) ||
+                selectedPartner ||
+                partners[0] ||
+                INITIAL_MOCK_PARTNERS[0]
+              }
+              partnerTrips={partnerTrips}
+              partnerIncentives={partnerIncentives}
+              drivers={drivers}
+              onBack={() => setCurrentTab('partners')}
+              onAssignDriver={handleAssignDriverToPartnerTrip}
+              onUnassignDriver={handleUnassignDriverFromPartnerTrip}
+              onUpdateTripStatus={handleUpdatePartnerTripStatus}
+              onCreatePartnerTrip={handleCreatePartnerTrip}
+              onUpdatePartnerTrip={handleUpdatePartnerTrip}
+              onDeletePartnerTrip={handleDeletePartnerTrip}
+              onSaveIncentivePlan={handleSaveIncentivePlan}
+              onAwardIncentive={handleAwardIncentive}
+              onApproveIncentive={handleApproveIncentive}
+              onPayIncentive={handlePayIncentive}
+              onUpdatePartner={async (partnerData) => {
+                await handleUpdatePartner(partnerData);
+                setSelectedPartner((prev) => (prev && prev.id === partnerData.id ? { ...prev, ...partnerData } : prev));
+              }}
+              onUpdatePartnerStatus={async (partnerId, status) => {
+                await handleUpdatePartnerStatus(partnerId, status);
+                setSelectedPartner((prev) => (prev && prev.id === partnerId ? { ...prev, status } : prev));
+              }}
+              onViewDriverDetails={(driverId) => {
+                setSelectedDriverId(driverId);
+                setCurrentTab('driver-details');
               }}
             />
+          )}
+
+          {currentTab === 'driver-details' && (
+            (() => {
+              const currentDriver = drivers.find((d) => d.id === selectedDriverId) || drivers[0];
+              if (!currentDriver) {
+                return (
+                  <div className="p-12 text-center bg-white rounded-2xl border border-slate-200 shadow-sm max-w-xl mx-auto mt-8">
+                    <div className="w-10 h-10 rounded-full border-4 border-[#0043DC] border-t-transparent animate-spin mx-auto mb-4" />
+                    <h3 className="text-base font-bold text-slate-800">Loading Driver Profile</h3>
+                    <p className="text-xs text-slate-500 mt-1">Retrieving latest telemetry and documents from fleet database...</p>
+                    <button
+                      onClick={() => setCurrentTab('drivers')}
+                      className="mt-4 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition"
+                    >
+                      Back to Drivers List
+                    </button>
+                  </div>
+                );
+              }
+              return (
+                <DriverDetailsPage
+                  driver={currentDriver}
+                  trips={trips}
+                  onBack={() => setCurrentTab('drivers')}
+                  onToggleOnline={handleToggleOnline}
+                  onToggleDeposit={handleToggleDeposit}
+                  onUpdateDriverStatus={handleUpdateDriverStatus}
+                  onVerifyDocument={handleVerifyDocument}
+                  onVerifyAllDocuments={handleVerifyAllDocuments}
+                  onAssignTrip={(driverId) => {
+                    setCurrentTab('create-trip');
+                  }}
+                />
+              );
+            })()
           )}
 
           {currentTab === 'customer-details' && selectedCustomer && (
@@ -738,7 +1279,7 @@ export default function App() {
             />
           )}
 
-          {(currentTab === 'website-bookings' || currentTab === 'website-book-cab' || currentTab === 'website-users' || currentTab === 'website-applications' || currentTab === 'website-inquiries') && (
+          {(currentTab === 'website-bookings' || currentTab === 'website-book-cab' || currentTab === 'website-users' || currentTab === 'website-applications' || currentTab === 'website-inquiries' || currentTab === 'website-pricing-rules') && (
             <WebsiteManager
               openBookCabModal={currentTab === 'website-book-cab'}
               onCloseBookCabModal={() => setCurrentTab('website-bookings')}
@@ -760,6 +1301,8 @@ export default function App() {
                   ? 'applications'
                   : currentTab === 'website-inquiries'
                   ? 'inquiries'
+                  : currentTab === 'website-pricing-rules'
+                  ? 'pricing-rules'
                   : 'bookings'
               }
               onRefresh={loadDatabase}

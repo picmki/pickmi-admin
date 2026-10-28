@@ -1,4 +1,4 @@
-import type { Driver, DriverDocument, Trip } from './types';
+import type { Driver, DriverDocument, Trip, Partner, PartnerTrip, PartnerIncentive } from './types';
 
 export const INITIAL_MOCK_DRIVERS: Driver[] = [
   {
@@ -507,3 +507,9 @@ export const INITIAL_MOCK_TRIPS: Trip[] = [
     driver: INITIAL_MOCK_DRIVERS[3],
   },
 ];
+
+export const INITIAL_MOCK_PARTNERS: Partner[] = [];
+
+export const INITIAL_MOCK_PARTNER_TRIPS: PartnerTrip[] = [];
+
+export const INITIAL_MOCK_PARTNER_INCENTIVES: PartnerIncentive[] = [];

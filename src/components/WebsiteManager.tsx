@@ -1,3 +1,4 @@
+import { WebsitePricingRules } from './WebsitePricingRules';
 import { AdminBookCabModal } from './AdminBookCabModal';
 import React, { useState, useMemo } from 'react';
 import {
@@ -54,7 +55,7 @@ interface WebsiteManagerProps {
   websiteUsers: WebsiteUser[];
   driverApplications: WebsiteDriverApplication[];
   contactSubmissions: WebsiteContactSubmission[];
-  activeSubTab?: 'bookings' | 'users' | 'applications' | 'inquiries';
+  activeSubTab?: 'bookings' | 'users' | 'applications' | 'inquiries' | 'pricing-rules';
   onRefresh: () => void;
   onAssignDriver: (tripId: string, driverId: string) => Promise<void>;
   onApproveDriverApplication?: (app: WebsiteDriverApplication) => Promise<void>;
@@ -316,6 +317,10 @@ export const WebsiteManager: React.FC<WebsiteManagerProps> = ({
     setCopiedPhone(text);
     setTimeout(() => setCopiedPhone(null), 2000);
   };
+
+  if (activeSubTab === 'pricing-rules') {
+    return <WebsitePricingRules />;
+  }
 
   return (
     <div className="space-y-6">

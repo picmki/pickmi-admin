@@ -49,12 +49,21 @@ export const DriversManager: React.FC<DriversManagerProps> = ({
   const [vehicleModel, setVehicleModel] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const filteredDrivers = drivers.filter(
-    (d) =>
-      d.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      d.mobile.includes(searchTerm) ||
-      d.vehicle?.vehicle_number.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const cleanSearch = searchTerm.trim().toLowerCase();
+  const searchDigits = cleanSearch.replace(/\D/g, '');
+
+  const filteredDrivers = drivers.filter((d) => {
+    if (!cleanSearch) return true;
+    const nameMatch = (d.name || '').toLowerCase().includes(cleanSearch);
+    const mobileRaw = String(d.mobile || '');
+    const mobileDigits = mobileRaw.replace(/\D/g, '');
+    const mobileMatch = mobileRaw.toLowerCase().includes(cleanSearch) || (searchDigits.length >= 3 && mobileDigits.includes(searchDigits));
+    const veh = Array.isArray(d.vehicle) ? d.vehicle[0] : d.vehicle;
+    const vehNumMatch = (veh?.vehicle_number || '').toLowerCase().includes(cleanSearch);
+    const vehModelMatch = (veh?.vehicle_model || '').toLowerCase().includes(cleanSearch);
+    const idMatch = (d.id || '').toLowerCase().includes(cleanSearch);
+    return Boolean(nameMatch || mobileMatch || vehNumMatch || vehModelMatch || idMatch);
+  });
 
   const handleCreateDriver = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -180,12 +189,19 @@ export const DriversManager: React.FC<DriversManagerProps> = ({
 
                       {/* Vehicle Details */}
                       <td className="py-3.5 px-4">
-                        <div className="font-mono font-bold text-slate-200">
-                          {driver.vehicle?.vehicle_number || 'N/A'}
-                        </div>
-                        <div className="text-[11px] text-slate-500">
-                          {driver.vehicle?.vehicle_type || 'Sedan'} • {driver.vehicle?.vehicle_model || 'Standard'}
-                        </div>
+                        {(() => {
+                          const veh = Array.isArray(driver.vehicle) ? driver.vehicle[0] : driver.vehicle;
+                          return (
+                            <>
+                              <div className="font-mono font-bold text-slate-800">
+                                {veh?.vehicle_number || 'N/A'}
+                              </div>
+                              <div className="text-[11px] text-slate-500">
+                                {veh?.vehicle_type || 'Sedan'} • {veh?.vehicle_model || 'Standard'}
+                              </div>
+                            </>
+                          );
+                        })()}
                       </td>
 
                       {/* Account Status & Hold Toggle */}
@@ -343,7 +359,10 @@ export const DriversManager: React.FC<DriversManagerProps> = ({
                           <span>{driver.mobile}</span>
                         </div>
                         <div className="text-[11px] text-slate-500 font-medium">
-                          {driver.vehicle?.vehicle_number || 'No Vehicle'} • {driver.vehicle?.vehicle_type || 'Sedan'}
+                          {(() => {
+                            const veh = Array.isArray(driver.vehicle) ? driver.vehicle[0] : driver.vehicle;
+                            return `${veh?.vehicle_number || 'No Vehicle'} • ${veh?.vehicle_type || 'Sedan'}`;
+                          })()}
                         </div>
                       </div>
                     </div>

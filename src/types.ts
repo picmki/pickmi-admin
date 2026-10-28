@@ -1,3 +1,18 @@
+export interface IncentiveStage {
+  stage: number;
+  title: string;
+  target_trips: number;
+  reward_amount: number;
+}
+
+export interface PartnerIncentivePlan {
+  cycle_name?: string;
+  cycle_type?: "WEEKLY" | "MONTHLY" | "MILESTONE";
+  stages: IncentiveStage[];
+  notes?: string;
+  updated_at?: string;
+}
+
 export type DriverStatus = 'active' | 'inactive' | 'suspended';
 export type OnlineStatus = 'ONLINE' | 'OFFLINE';
 export type DocumentVerificationStatus = 'Verified' | 'Pending' | 'Rejected';
@@ -11,7 +26,8 @@ export type TripStatus =
   | 'ARRIVED'
   | 'STARTED'
   | 'COMPLETED'
-  | 'CANCELLED';
+  | 'CANCELLED'
+  | 'PENDING_REVIEW';
 export type TripType = 'One-way' | 'Round-trip' | 'Airport Transfer' | 'Outstation';
 export type DepositStatus = 'PAID' | 'PENDING';
 export type SettlementStatus = 'PENDING' | 'SETTLED' | 'DISPUTED';
@@ -34,7 +50,12 @@ export type NavTab =
   | "website-users"
   | "website-applications"
   | "website-inquiries"
-  | "customer-details";
+  | "website-pricing-rules"
+  | "customer-details"
+  | "partners"
+  | "partner-trips"
+  | "partner-incentives"
+  | "partner-details";
 
 export interface WebsiteBooking {
   id: string;
@@ -239,4 +260,82 @@ export interface WalletTransaction {
   trip_id?: string;
   created_at: string;
   driver_name?: string;
+}
+
+export interface Partner {
+  id: string;
+  name: string;
+  contact_person: string;
+  mobile: string;
+  email: string;
+  city: string;
+  fleet_size: number;
+  status: "ACTIVE" | "PENDING" | "SUSPENDED";
+  rating: number;
+  commission_rate: number;
+  payout_upi_id?: string;
+  bank_account_number?: string;
+  bank_ifsc?: string;
+  total_trips: number;
+  total_revenue: number;
+  incentive_earned?: number;
+  incentive_paid?: number;
+  incentive_pending?: number;
+  incentive_target_trips?: number;
+  incentive_reward_amount?: number;
+  incentive_plan?: PartnerIncentivePlan;
+  current_cycle_trips?: number;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface PartnerTrip {
+  id: string;
+  trip_number: string;
+  partner_id: string;
+  partner_name: string;
+  customer_name: string;
+  customer_phone: string;
+  pickup_location: string;
+  drop_location: string;
+  pickup_date: string;
+  pickup_time: string;
+  trip_type: TripType;
+  vehicle_type: VehicleType;
+  fare: number;
+  driver_payout: number;
+  commission_amount: number;
+  status: TripStatus;
+  assigned_driver_id: string | null;
+  driver?: Driver;
+  notes?: string;
+  created_method?: "manual" | "voice";
+  is_voice_trip?: boolean;
+  trip_date?: string;
+  trip_time?: string;
+  partner_travel_name?: string;
+  audio_url?: string | null;
+  audio_base64?: string | null;
+  audio_duration?: number;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface PartnerIncentive {
+  id: string;
+  partner_id: string;
+  partner_name: string;
+  amount: number;
+  type: "MILESTONE_TARGET" | "PEAK_PERFORMANCE" | "FLEET_EXPANSION" | "FESTIVAL_BONUS" | "MANUAL_DISCRETIONARY";
+  title: string;
+  description: string;
+  status: "PENDING" | "APPROVED" | "PAID" | "COMPLETED" | "REJECTED";
+  paid_at?: string | null;
+  approved_at?: string | null;
+  payout_reference?: string | null;
+  payment_method?: string;
+  created_at: string;
+  stage?: number;
+  target_trips?: number;
+  completed_trips?: number;
 }

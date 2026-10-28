@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import {
   Radio,
+  Sliders,
   LayoutDashboard,
   MapPin,
   Users,
@@ -13,6 +14,9 @@ import {
   X,
   Globe,
   MessageSquare,
+  Building2,
+  Compass,
+  Award,
 } from "lucide-react";
 import type { NavTab } from "../types";
 
@@ -33,8 +37,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isOpenMobile = false,
   onCloseMobile,
 }) => {
-  const [managementMode, setManagementMode] = useState<'driver' | 'customer' | 'website'>(() => {
-    if (currentTab === 'website-bookings' || currentTab === 'website-book-cab' || currentTab === 'website-users' || currentTab === 'website-applications' || currentTab === 'website-inquiries' || (currentTab as any) === 'customer-details') {
+  const [managementMode, setManagementMode] = useState<'driver' | 'customer' | 'website' | 'partner'>(() => {
+    if (currentTab === 'partners' || currentTab === 'partner-trips' || currentTab === 'partner-incentives' || (currentTab as any) === 'partner-details') {
+      return 'partner';
+    }
+    if (currentTab === 'website-bookings' || currentTab === 'website-book-cab' || currentTab === 'website-users' || currentTab === 'website-applications' || currentTab === 'website-inquiries' || currentTab === 'website-pricing-rules' || (currentTab as any) === 'customer-details') {
       return 'website';
     }
     return currentTab === 'customers' ? 'customer' : 'driver';
@@ -42,10 +49,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
   useEffect(() => {
-    if (currentTab === 'customers') {
+    if (currentTab === 'partners' || currentTab === 'partner-trips' || currentTab === 'partner-incentives' || (currentTab as any) === 'partner-details') {
+      setManagementMode('partner');
+    } else if (currentTab === 'customers') {
       setManagementMode('customer');
-    } else if (currentTab === 'website-bookings' || currentTab === 'website-book-cab' || currentTab === 'website-users' || currentTab === 'website-applications' || currentTab === 'website-inquiries') {
+    } else if (currentTab === 'website-bookings' || currentTab === 'website-book-cab' || currentTab === 'website-users' || currentTab === 'website-applications' || currentTab === 'website-inquiries' || currentTab === 'website-pricing-rules' || (currentTab as any) === 'customer-details') {
       setManagementMode('website');
+    } else {
+      setManagementMode('driver');
     }
   }, [currentTab]);
 
@@ -98,12 +109,37 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
   ];
 
+
+  // Partner Management Navigation Items
+  const partnerNavItems = [
+    {
+      id: "partners" as NavTab,
+      label: "Partner Directory",
+      icon: Building2,
+    },
+    {
+      id: "partner-trips" as NavTab,
+      label: "Partner Trips & Dispatch",
+      icon: Compass,
+    },
+    {
+      id: "partner-incentives" as NavTab,
+      label: "Incentives & Payouts",
+      icon: Award,
+    },
+  ];
+
   // Website Management Navigation Items
   const websiteNavItems = [
     {
       id: "website-bookings" as NavTab,
       label: "Website Bookings",
       icon: Globe,
+    },
+    {
+      id: "website-pricing-rules" as NavTab,
+      label: "Fleet & Pricing Rules",
+      icon: Sliders,
     },
     {
       id: "website-book-cab" as NavTab,
@@ -127,7 +163,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
   ];
 
-  const navItems = managementMode === 'driver' ? driverNavItems : managementMode === 'customer' ? customerNavItems : websiteNavItems;
+  const navItems = managementMode === 'driver' ? driverNavItems : managementMode === 'customer' ? customerNavItems : managementMode === 'partner' ? partnerNavItems : websiteNavItems;
 
   const handleNavClick = (tab: NavTab) => {
     onSelectTab(tab);
@@ -187,7 +223,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div className="flex items-center space-x-2 truncate">
                 <span className="w-2 h-2 rounded-full bg-[#0043DC] flex-shrink-0" />
                 <span className="truncate">
-                  {managementMode === 'driver' ? 'Driver Management' : managementMode === 'customer' ? 'Customer Management' : 'Website Management'}
+                  {managementMode === 'driver' ? 'Driver Management' : managementMode === 'customer' ? 'Customer Management' : managementMode === 'partner' ? 'Partner Management' : 'Website Management'}
                 </span>
               </div>
               <ChevronDown
@@ -221,6 +257,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <div className="text-[10px] text-slate-400 font-normal">Drivers, Trips & Fleet</div>
                   </div>
                   {managementMode === 'driver' && (
+                    <Check className="w-3.5 h-3.5 text-[#0043DC] shrink-0" />
+                  )}
+                </button>
+
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setManagementMode("partner");
+                    setIsDropdownOpen(false);
+                    onSelectTab("partners");
+                  }}
+                  className={`w-full flex items-center space-x-2 px-2.5 py-2 rounded-lg text-xs font-bold text-left transition ${
+                    managementMode === "partner"
+                      ? "bg-[#0043DC]/10 text-[#0043DC]"
+                      : "text-slate-600 hover:bg-white hover:text-slate-900"
+                  }`}
+                >
+                  <Building2 className="w-4 h-4 text-[#0043DC] shrink-0" />
+                  <div className="flex-1 truncate">
+                    <div className="text-xs font-bold leading-tight">Partner Management</div>
+                    <div className="text-[10px] text-slate-400 font-normal">Fleet Partners & Trips</div>
+                  </div>
+                  {managementMode === "partner" && (
                     <Check className="w-3.5 h-3.5 text-[#0043DC] shrink-0" />
                   )}
                 </button>
@@ -275,7 +335,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           <div className="text-[10px] font-black uppercase tracking-wider text-slate-400 px-3">
-            {managementMode === 'driver' ? 'Driver Navigation' : managementMode === 'customer' ? 'Customer Navigation' : 'Website Navigation'}
+            {managementMode === 'driver' ? 'Driver Navigation' : managementMode === 'customer' ? 'Customer Navigation' : managementMode === 'partner' ? 'Partner Navigation' : 'Website Navigation'}
           </div>
 
           <nav className="space-y-1">
@@ -283,7 +343,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               const Icon = item.icon;
               const isActive =
                 currentTab === item.id ||
-                (item.id === "drivers" && currentTab === "driver-details");
+                (item.id === "drivers" && currentTab === "driver-details") || (item.id === "partners" && currentTab === "partner-details");
 
               return (
                 <button
