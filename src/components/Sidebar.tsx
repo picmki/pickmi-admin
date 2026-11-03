@@ -17,6 +17,8 @@ import {
   Building2,
   Compass,
   Award,
+  Bot,
+  Sparkles,
 } from "lucide-react";
 import type { NavTab } from "../types";
 
@@ -66,6 +68,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: "overview" as NavTab,
       label: "Dashboard",
       icon: LayoutDashboard,
+    },
+    {
+      id: "live-chat" as NavTab,
+      label: "Live Chat Agent",
+      icon: Bot,
+      badge: "AI",
     },
     {
       id: "live-drivers" as NavTab,
@@ -363,6 +371,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     />
                     <span>{item.label}</span>
                   </div>
+                  {(item as any).badge && (
+                    <span
+                      className={`text-[9px] uppercase px-1.5 py-0.5 rounded-full font-black tracking-wider transition ${
+                        isActive
+                          ? "bg-white/20 text-white"
+                          : "bg-[#0043DC]/10 text-[#0043DC]"
+                      }`}
+                    >
+                      {(item as any).badge}
+                    </span>
+                  )}
                 </button>
               );
             })}

@@ -19,6 +19,7 @@ import { DriverWalletsManager } from './components/DriverWalletsManager';
 import { WebsiteManager } from './components/WebsiteManager';
 import { PartnersManager } from './components/PartnersManager';
 import { PartnerDetailsPage } from './components/PartnerDetailsPage';
+import { LiveChatAgent } from './components/LiveChatAgent';
 import { INITIAL_MOCK_DRIVERS, INITIAL_MOCK_TRIPS, INITIAL_MOCK_DOCUMENTS, INITIAL_MOCK_PARTNERS, INITIAL_MOCK_PARTNER_TRIPS, INITIAL_MOCK_PARTNER_INCENTIVES } from './mockData';
 import {
   supabase,
@@ -63,10 +64,11 @@ import {
   approvePartnerIncentive,
 } from './lib/supabase';
 import type { Driver, DriverDocument, Trip, TripStatus, NavTab, WebsiteBooking, WebsiteUser, WebsiteDriverApplication, WebsiteContactSubmission, Partner, PartnerTrip, PartnerIncentive, PartnerIncentivePlan } from './types';
-import { AlertCircle, Menu, LayoutDashboard, Navigation, MapPin, Users } from 'lucide-react';
+import { AlertCircle, Menu, LayoutDashboard, Navigation, MapPin, Users, Bot } from 'lucide-react';
 
 const VALID_TABS: NavTab[] = [
   'overview',
+  'live-chat',
   'live-drivers',
   'trips',
   'create-trip',
@@ -388,9 +390,52 @@ export default function App() {
   }, [loadDatabase]);
 
   // Trip Handlers
-  const handleCreateTrip = async (payload: any): Promise<void> => {
-    const newTrip = await createTrip(payload);
-    setTrips((prev) => [newTrip, ...prev]);
+  const handleCreateTrip = async (payload: any): Promise<Trip> => {
+    try {
+      const newTrip = await createTrip(payload);
+      setTrips((prev) => [newTrip, ...prev]);
+      return newTrip;
+    } catch (e: any) {
+      console.warn("Could not save to Supabase, creating locally:", e);
+      const tripNum = payload.trip_number || ('PM-' + Math.floor(100000 + Math.random() * 900000));
+      const localTrip: Trip = {
+        id: 'trip_' + Date.now(),
+        trip_number: tripNum,
+        customer_name: payload.customer_name || 'Customer',
+        customer_phone: payload.customer_phone || '+91 98000 00000',
+        pickup_location: payload.pickup_location || 'Pickup Point',
+        pickup_latitude: payload.pickup_latitude || 12.9716,
+        pickup_longitude: payload.pickup_longitude || 77.5946,
+        drop_location: payload.drop_location || 'Drop Point',
+        drop_latitude: payload.drop_latitude || 12.9352,
+        drop_longitude: payload.drop_longitude || 77.6245,
+        pickup_date: payload.pickup_date || 'Today',
+        pickup_time: payload.pickup_time || 'Now',
+        fare: Number(payload.fare) || 1200,
+        distance: payload.distance || '35 km',
+        vehicle_type: payload.vehicle_type || 'Sedan',
+        trip_type: payload.trip_type || 'One-way',
+        payment_method: payload.payment_method || 'Cash',
+        status: (payload.status || 'AVAILABLE') as TripStatus,
+        assigned_driver_id: payload.assigned_driver_id || null,
+        allowed_km: payload.allowed_km || 50,
+        cash_to_collect: payload.cash_to_collect !== undefined ? payload.cash_to_collect : payload.fare,
+        toll_included: payload.toll_included || 'INCLUDED',
+        permit_included: payload.permit_included || 'EXCLUDED',
+        batta_included: payload.batta_included || 'INCLUDED',
+        otp: String(Math.floor(1000 + Math.random() * 9000)),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      setTrips((prev) => {
+        const updated = [localTrip, ...prev];
+        try {
+          localStorage.setItem('pickmi_cached_trips', JSON.stringify(updated));
+        } catch {}
+        return updated;
+      });
+      return localTrip;
+    }
   };
 
   const handleUpdateTripStatus = async (tripId: string, status: TripStatus, driverId?: string) => {
@@ -934,6 +979,7 @@ export default function App() {
           isSyncing={isSyncing}
           onRefresh={loadDatabase}
           onOpenCreateTrip={() => setCurrentTab('create-trip')}
+          onOpenLiveChat={() => setCurrentTab('live-chat')}
           onOpenSetupModal={() => setIsSetupModalOpen(true)}
           onToggleMobileMenu={() => setIsMobileMenuOpen((prev) => !prev)}
           onLogout={() => {
@@ -961,7 +1007,7 @@ export default function App() {
         )}
 
         {/* Main Routed Page Content */}
-        <main className="p-4 sm:p-6 md:p-8 flex-1">
+        <main className={`${currentTab === 'live-chat' ? 'p-2 sm:p-4 md:p-8' : 'p-4 sm:p-6 md:p-8'} flex-1`}>
           {currentTab === 'overview' && (
             <DashboardOverview
               drivers={drivers}
@@ -970,6 +1016,22 @@ export default function App() {
               onOpenCreateTrip={() => setCurrentTab('create-trip')}
               onNavigateTab={setCurrentTab}
               onQuickDispatch={handleQuickDispatch}
+            />
+          )}
+
+          {currentTab === 'live-chat' && (
+            <LiveChatAgent
+              trips={trips}
+              drivers={drivers}
+              onUpdateTripDetails={handleUpdateTripDetails}
+              onUpdateTripStatus={handleUpdateTripStatus}
+              onDeleteTrip={handleDeleteTrip}
+              onCreateTrip={handleCreateTrip}
+              onNavigateToTrips={() => setCurrentTab('trips')}
+              onViewDriverDetails={(driverId) => {
+                setSelectedDriverId(driverId);
+                setCurrentTab('driver-details');
+              }}
             />
           )}
 
@@ -1391,16 +1453,6 @@ export default function App() {
         </button>
 
         <button
-          onClick={() => setCurrentTab('create-trip')}
-          className={`flex flex-col items-center gap-0.5 text-[10px] font-bold ${
-            currentTab === 'create-trip' ? 'text-[#0043DC]' : 'text-slate-500'
-          }`}
-        >
-          <Navigation className="w-5 h-5" />
-          <span>Dispatch</span>
-        </button>
-
-        <button
           onClick={() => setCurrentTab('trips')}
           className={`flex flex-col items-center gap-0.5 text-[10px] font-bold ${
             currentTab === 'trips' ? 'text-[#0043DC]' : 'text-slate-500'
@@ -1408,6 +1460,20 @@ export default function App() {
         >
           <MapPin className="w-5 h-5" />
           <span>Trips</span>
+        </button>
+
+        <button
+          onClick={() => setCurrentTab('live-chat')}
+          className={`flex flex-col items-center gap-0.5 text-[10px] font-bold ${
+            currentTab === 'live-chat' ? 'text-[#0043DC]' : 'text-slate-500'
+          }`}
+        >
+          <div className={`p-1 rounded-xl transition ${
+            currentTab === 'live-chat' ? 'bg-[#0043DC]/10 text-[#0043DC]' : ''
+          }`}>
+            <Bot className="w-5 h-5" />
+          </div>
+          <span>Live Chat</span>
         </button>
 
         <button

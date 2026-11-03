@@ -15,7 +15,7 @@ import type { Driver, VehicleType, TripType } from '../types';
 
 interface CreateTripPageProps {
   drivers: Driver[];
-  onSubmit: (payload: any) => Promise<void>;
+  onSubmit: (payload: any) => Promise<any>;
   onNavigateToTrips: () => void;
 }
 

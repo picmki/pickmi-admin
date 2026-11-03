@@ -1,11 +1,12 @@
 import React from "react";
-import { Database, PlusCircle, RefreshCw, Menu, LogOut } from "lucide-react";
+import { Database, PlusCircle, RefreshCw, Menu, LogOut, Bot } from "lucide-react";
 
 interface HeaderProps {
   supabaseStatus: { ok: boolean; tablesExist: boolean; message: string };
   isSyncing: boolean;
   onRefresh: () => void;
   onOpenCreateTrip: () => void;
+  onOpenLiveChat?: () => void;
   onOpenSetupModal: () => void;
   onToggleMobileMenu: () => void;
   onLogout?: () => void;
@@ -16,6 +17,7 @@ export const Header: React.FC<HeaderProps> = ({
   isSyncing,
   onRefresh,
   onOpenCreateTrip,
+  onOpenLiveChat,
   onOpenSetupModal,
   onToggleMobileMenu,
   onLogout,
@@ -83,6 +85,18 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <RefreshCw className={`w-4 h-4 ${isSyncing ? "animate-spin text-[#0043DC]" : ""}`} />
           </button>
+
+          {/* AI Live Chat Agent CTA */}
+          {onOpenLiveChat && (
+            <button
+              onClick={onOpenLiveChat}
+              className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-[#0043DC] font-extrabold text-xs tracking-wide transition border border-blue-200/80 active:scale-95"
+              title="Open PickMi AI Live Chat Agent"
+            >
+              <Bot className="w-4 h-4 text-[#0043DC]" />
+              <span className="hidden sm:inline">AI Agent</span>
+            </button>
+          )}
 
           {/* Create Trip CTA */}
           <button

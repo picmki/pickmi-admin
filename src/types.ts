@@ -34,6 +34,7 @@ export type SettlementStatus = 'PENDING' | 'SETTLED' | 'DISPUTED';
 
 export type NavTab =
   | "overview"
+  | "live-chat"
   | "create-trip"
   | "trips"
   | "live-drivers"
